@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#17142d">
+  <meta name="description" content="Instagram takip verilerini cihazında, güvenli ve renkli bir arayüzle analiz et.">
+  <title>Takip Atlası</title>
+  <script>
+    try {
+      const savedTheme = localStorage.getItem("takip-atlasi-theme") || "atlas";
+      const allowedThemes = ["atlas", "ocean", "forest", "sunset", "sakura", "lavender", "ice", "sand", "mono", "midnight", "neon", "cherry"];
+      const theme = allowedThemes.includes(savedTheme) ? savedTheme : "atlas";
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.themeMode = ["midnight", "neon"].includes(theme) ? "dark" : "light";
+    } catch (error) {
+      document.documentElement.dataset.theme = "atlas";
+      document.documentElement.dataset.themeMode = "light";
+    }
+  </script>
+  <link rel="stylesheet" href="styles.css?v=14">
+</head>
+<body>
+  <div class="ambient" aria-hidden="true">
+    <span class="ambient__orb ambient__orb--violet"></span>
+    <span class="ambient__orb ambient__orb--coral"></span>
+    <span class="ambient__orb ambient__orb--lime"></span>
+    <span class="ambient__grain"></span>
+  </div>
+
+  <main id="app">
+    <section class="onboarding view" id="onboardingView">
+      <header class="landing-header shell">
+        <a class="brand" href="#" aria-label="Takip Atlası ana sayfa">
+          <span class="brand__mark" aria-hidden="true">
+            <span></span>
+            <span></span>
+          </span>
+          <span class="brand__name">Takip Atlası</span>
+        </a>
+      </header>
+
+      <div class="onboarding__content shell">
+        <section class="hero-copy" aria-labelledby="heroTitle">
+          <div class="eyebrow"><span></span> Yerel, güvenli, sana özel</div>
+          <h1 id="heroTitle">Takip çevreni<br><em>tek bakışta</em> gör.</h1>
+          <p class="hero-copy__lead">
+            Kimler yanında, kimler sessizce uzaklaşmış? Instagram verini cihazından
+            çıkarmadan karşılaştır, kategorilere ayır ve değişimi izle.
+          </p>
+          <div class="trust-row" aria-label="Özellikler">
+            <span>🔒 Şifre yok</span>
+            <span>⚡ Hızlı analiz</span>
+            <span>📱 Telefonda direkt</span>
+          </div>
+
+          <div class="orbit-visual" aria-hidden="true">
+            <div class="orbit orbit--outer"></div>
+            <div class="orbit orbit--inner"></div>
+            <div class="orbit-person orbit-person--one"><span>DK</span></div>
+            <div class="orbit-person orbit-person--two"><span>EA</span></div>
+            <div class="orbit-person orbit-person--three"><span>MS</span></div>
+            <div class="orbit-center">
+              <span class="orbit-center__emoji">🧭</span>
+              <strong>Sen</strong>
+            </div>
+            <div class="orbit-label orbit-label--mutual"><i></i> Karşılıklı</div>
+            <div class="orbit-label orbit-label--new"><i></i> 8 yeni</div>
+          </div>
+        </section>
+
+        <section class="setup-card" aria-labelledby="setupTitle">
+          <div class="setup-card__glow" aria-hidden="true"></div>
+          <div class="setup-card__header">
+            <span class="step-label">01 / Profilini aç</span>
+            <h2 id="setupTitle">Analiz alanını hazırla</h2>
+            <p>Giriş yalnızca açılan Instagram sayfasında yapılır; şifren Takip Atlası'na girmez.</p>
+          </div>
+
+          <form id="setupForm" novalidate>
+            <label class="field-label" for="profileName">Instagram kullanıcı adın <small>(isteğe bağlı)</small></label>
+            <div class="username-field">
+              <span aria-hidden="true">@</span>
+              <input
+                id="profileName"
+                name="profileName"
+                type="text"
+                inputmode="text"
+                autocomplete="off"
+                maxlength="30"
+                placeholder="kullaniciadin"
+                aria-describedby="profileHint"
+              >
+              <span class="field-check" id="profileCheck" aria-hidden="true">✓</span>
+            </div>
+            <p class="field-hint" id="profileHint">Boş bırakırsan açık Instagram oturumundan okunur. Veri yalnızca bu telefonda saklanır.</p>
+
+            <button class="instagram-connect" id="instagramConnectButton" type="button" disabled>
+              <span class="instagram-connect__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="21" height="21">
+                  <rect x="3.5" y="3.5" width="17" height="17" rx="5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                  <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                  <circle cx="17.5" cy="6.8" r="1.1" fill="currentColor"/>
+                </svg>
+              </span>
+              <span class="instagram-connect__copy">
+                <strong id="instagramConnectTitle">Android bağlantısı hazırlanıyor</strong>
+                <small id="instagramConnectHint">Instagram uygulama içinde güvenli bir ekranda açılır</small>
+              </span>
+              <span class="instagram-connect__arrow" aria-hidden="true">↗</span>
+            </button>
+            <div class="collector-panel" id="collectorPanel" hidden aria-live="polite">
+              <div class="collector-panel__head">
+                <span class="collector-pulse" id="collectorPulse" aria-hidden="true"></span>
+                <div>
+                  <strong id="collectorTitle">Instagram bekleniyor</strong>
+                  <span id="collectorMessage">Açılan pencerede giriş yap.</span>
+                </div>
+                <b id="collectorPercent">0%</b>
+              </div>
+              <div class="collector-track"><span id="collectorProgress"></span></div>
+              <div class="collector-counts">
+                <span><i>↓</i><strong id="liveFollowersCount">0</strong> takipçi</span>
+                <span><i>↑</i><strong id="liveFollowingCount">0</strong> takip edilen</span>
+                <button id="cancelCollectorButton" type="button">Durdur</button>
+              </div>
+            </div>
+
+            <p class="form-error" id="setupError" role="alert" hidden></p>
+            <button class="demo-button" id="demoButton" type="button">Önce örnek görünümü dene <span aria-hidden="true">✨</span></button>
+          </form>
+
+          <div class="privacy-strip">
+            <span aria-hidden="true">🛡️</span>
+            <p><strong>Şifren uygulamaya girmez.</strong> Giriş yalnızca Android içindeki instagram.com ekranında yapılır; analiz sonuçları telefonunda kalır.</p>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="dashboard view" id="dashboardView" hidden>
+      <div class="mobile-scrim" id="mobileScrim" hidden></div>
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar__top">
+          <a class="brand brand--sidebar" href="#" data-nav-category="overview" aria-label="Genel bakışa git">
+            <span class="brand__mark" aria-hidden="true"><span></span><span></span></span>
+            <span class="brand__name">Takip Atlası</span>
+          </a>
+          <button class="sidebar-close" id="sidebarCloseButton" type="button" aria-label="Menüyü kapat">×</button>
+        </div>
+
+        <div class="profile-chip">
+          <div class="profile-avatar" id="profileAvatar">TA</div>
+          <div>
+            <span>Aktif profil</span>
+            <strong id="sidebarProfileName">@kullanici</strong>
+          </div>
+          <span class="live-dot" title="Yerel profil aktif"></span>
+        </div>
+
+        <nav class="side-nav" aria-label="Takip kategorileri">
+          <p class="side-nav__label">Analiz</p>
+          <button class="side-nav__item is-active" type="button" data-category="overview">
+            <span class="nav-icon nav-icon--overview" aria-hidden="true">⌁</span>
+            <span>Genel Bakış</span>
+          </button>
+          <button class="side-nav__item" type="button" data-category="all">
+            <span class="nav-icon nav-icon--all" aria-hidden="true">◎</span>
+            <span>Tüm Hesaplar</span>
+            <b data-count="all">0</b>
+          </button>
+
+          <p class="side-nav__label">Çevren</p>
+          <button class="side-nav__item" type="button" data-category="followers">
+            <span class="nav-icon nav-icon--followers" aria-hidden="true">↓</span>
+            <span>Takipçilerin</span>
+            <b data-count="followers">0</b>
+          </button>
+          <button class="side-nav__item" type="button" data-category="following">
+            <span class="nav-icon nav-icon--following" aria-hidden="true">↑</span>
+            <span>Takip Ettiklerin</span>
+            <b data-count="following">0</b>
+          </button>
+          <button class="side-nav__item" type="button" data-category="mutual">
+            <span class="nav-icon nav-icon--mutual" aria-hidden="true">↔</span>
+            <span>Karşılıklı</span>
+            <b data-count="mutual">0</b>
+          </button>
+          <button class="side-nav__item" type="button" data-category="notFollowingBack">
+            <span class="nav-icon nav-icon--warning" aria-hidden="true">!</span>
+            <span>Seni Takip Etmeyenler</span>
+            <b data-count="notFollowingBack">0</b>
+          </button>
+          <button class="side-nav__item" type="button" data-category="youDontFollowBack">
+            <span class="nav-icon nav-icon--cyan" aria-hidden="true">+</span>
+            <span>Takip Etmediklerin</span>
+            <b data-count="youDontFollowBack">0</b>
+          </button>
+
+          <p class="side-nav__label">Değişim</p>
+          <button class="side-nav__item" type="button" data-category="newFollowers">
+            <span class="nav-icon nav-icon--new" aria-hidden="true">✦</span>
+            <span>Yeni Takipçiler</span>
+            <b data-count="newFollowers">0</b>
+          </button>
+          <button class="side-nav__item" type="button" data-category="lostFollowers">
+            <span class="nav-icon nav-icon--lost" aria-hidden="true">−</span>
+            <span>Takibi Bırakanlar</span>
+            <b data-count="lostFollowers">0</b>
+          </button>
+        </nav>
+
+        <div class="sidebar__footer">
+          <div class="local-note">
+            <span aria-hidden="true">🔐</span>
+            <div><strong>Yerel kasa</strong><small>Verilerin bu telefonda</small></div>
+          </div>
+          <button class="theme-trigger" id="themeButton" type="button">
+            <span class="theme-trigger__icon" aria-hidden="true">◐</span>
+            <span>Tema</span>
+            <strong id="currentThemeName">Atlas</strong>
+          </button>
+          <button class="sidebar-action" id="privacyButton" type="button">Gizlilik ve veri kullanımı</button>
+          <button class="sidebar-action" id="changeProfileButton" type="button">Profili değiştir</button>
+        </div>
+      </aside>
+
+      <div class="dashboard__body">
+        <header class="topbar">
+          <div class="topbar__title-group">
+            <button class="menu-button" id="menuButton" type="button" aria-label="Menüyü aç">
+              <span></span><span></span>
+            </button>
+            <div>
+              <span class="topbar__eyebrow" id="categoryEyebrow">TAKİP MERKEZİ</span>
+              <h1 id="categoryTitle">Genel Bakış</h1>
+            </div>
+          </div>
+          <div class="topbar__actions">
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <path d="m16 16 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+              <input id="searchInput" type="search" placeholder="Kullanıcı ara..." autocomplete="off">
+            </div>
+            <div class="sync-status" id="syncStatus">
+              <span></span>
+              <div><small>Son yenileme</small><strong id="lastSyncText">Şimdi</strong></div>
+            </div>
+            <button class="refresh-button" id="refreshButton" type="button">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path d="M19 8a8 8 0 1 0 .4 7M19 8V3m0 5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>Verileri yenile</span>
+            </button>
+          </div>
+        </header>
+
+        <main class="dashboard-main">
+          <section class="overview-panel" id="overviewPanel">
+            <div class="welcome-row">
+              <div>
+                <span class="section-kicker">BUGÜNÜN HARİTASI</span>
+                <h2>Çevrende neler oluyor, <span id="welcomeName">gezgin</span>?</h2>
+                <p>Telefonda topladığın son veriye göre takip ilişkilerinin özeti.</p>
+              </div>
+              <div class="data-health">
+                <div class="data-health__ring"><span id="healthScore">100</span><small>%</small></div>
+                <div><strong>Veri hazır</strong><span id="healthText">İki liste de bulundu</span></div>
+              </div>
+            </div>
+
+            <div class="stats-grid">
+              <button class="stat-card stat-card--violet" type="button" data-open-category="followers">
+                <span class="stat-card__icon" aria-hidden="true">👥</span>
+                <span class="stat-card__label">Takipçilerin</span>
+                <strong data-stat="followers">0</strong>
+                <small data-delta="followers"><i></i> Henüz karşılaştırma yok</small>
+                <span class="stat-card__arrow" aria-hidden="true">↗</span>
+              </button>
+              <button class="stat-card stat-card--ink" type="button" data-open-category="following">
+                <span class="stat-card__icon" aria-hidden="true">🛰️</span>
+                <span class="stat-card__label">Takip Ettiklerin</span>
+                <strong data-stat="following">0</strong>
+                <small data-delta="following"><i></i> Güncel listen</small>
+                <span class="stat-card__arrow" aria-hidden="true">↗</span>
+              </button>
+              <button class="stat-card stat-card--lime" type="button" data-open-category="mutual">
+                <span class="stat-card__icon" aria-hidden="true">🤝</span>
+                <span class="stat-card__label">Karşılıklı</span>
+                <strong data-stat="mutual">0</strong>
+                <small data-delta="mutual"><i></i> Güçlü bağların</small>
+                <span class="stat-card__arrow" aria-hidden="true">↗</span>
+              </button>
+              <button class="stat-card stat-card--coral" type="button" data-open-category="notFollowingBack">
+                <span class="stat-card__icon" aria-hidden="true">👀</span>
+                <span class="stat-card__label">Geri Dönmeyenler</span>
+                <strong data-stat="notFollowingBack">0</strong>
+                <small data-delta="notFollowingBack"><i></i> Seni takip etmiyor</small>
+                <span class="stat-card__arrow" aria-hidden="true">↗</span>
+              </button>
+            </div>
+
+            <div class="insight-grid">
+              <article class="insight-card relationship-card">
+                <div class="card-heading">
+                  <div><span class="section-kicker">DENGE</span><h3>Takip ilişkisi</h3></div>
+                  <button class="icon-button" type="button" data-open-category="all" aria-label="Tüm hesapları aç">↗</button>
+                </div>
+                <div class="relationship-chart">
+                  <div class="donut" id="relationshipDonut">
+                    <div><strong id="mutualPercent">0%</strong><span>karşılıklı</span></div>
+                  </div>
+                  <div class="chart-legend">
+                    <button type="button" data-open-category="mutual"><i class="legend-dot legend-dot--violet"></i><span>Karşılıklı</span><strong data-stat="mutual">0</strong></button>
+                    <button type="button" data-open-category="notFollowingBack"><i class="legend-dot legend-dot--coral"></i><span>Geri dönmeyen</span><strong data-stat="notFollowingBack">0</strong></button>
+                    <button type="button" data-open-category="youDontFollowBack"><i class="legend-dot legend-dot--cyan"></i><span>Senin dönmediklerin</span><strong data-stat="youDontFollowBack">0</strong></button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="insight-card pulse-card">
+                <div class="card-heading">
+                  <div><span class="section-kicker">SON YENİLEME</span><h3>Değişim nabzı</h3></div>
+                  <span class="history-count" id="historyCount">1 kayıt</span>
+                </div>
+                <div class="pulse-numbers">
+                  <button type="button" data-open-category="newFollowers">
+                    <span class="pulse-icon pulse-icon--up" aria-hidden="true">↗</span>
+                    <span><small>Yeni takipçi</small><strong data-stat="newFollowers">0</strong></span>
+                  </button>
+                  <button type="button" data-open-category="lostFollowers">
+                    <span class="pulse-icon pulse-icon--down" aria-hidden="true">↘</span>
+                    <span><small>Takibi bırakan</small><strong data-stat="lostFollowers">0</strong></span>
+                  </button>
+                </div>
+                <div class="pulse-visual" aria-hidden="true">
+                  <span style="--h: 30%"></span><span style="--h: 45%"></span><span style="--h: 38%"></span>
+                  <span style="--h: 62%"></span><span style="--h: 48%"></span><span style="--h: 72%"></span>
+                  <span style="--h: 58%"></span><span style="--h: 82%"></span><span style="--h: 68%"></span>
+                  <span style="--h: 92%"></span><span style="--h: 74%"></span><span style="--h: 86%"></span>
+                </div>
+                <p id="pulseSummary">Bir sonraki yenilemede değişimleri burada göreceksin.</p>
+              </article>
+
+              <article class="insight-card attention-card">
+                <div class="card-heading">
+                  <div><span class="section-kicker">HIZLI BAKIŞ</span><h3>Geri dönmeyenler</h3></div>
+                  <button class="text-link" type="button" data-open-category="notFollowingBack">Tümünü gör</button>
+                </div>
+                <div class="mini-people" id="attentionPeople"></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="list-panel" id="listPanel" hidden>
+            <div class="list-panel__header">
+              <div>
+                <span class="section-kicker" id="listKicker">KATEGORİ</span>
+                <h2 id="listTitle">Takipçilerin</h2>
+                <p id="listDescription">Seni takip eden hesapların güncel listesi.</p>
+              </div>
+              <div class="list-tools">
+                <span class="result-count"><strong id="visibleResultCount">0</strong> hesap</span>
+                <span class="detail-status" id="listDetailStatus" hidden>Bilgiler hazırlanıyor</span>
+                <button class="filter-trigger" id="openFilterButton" type="button">
+                  Filtre <b id="activeFilterCount">0</b>
+                </button>
+                <label class="sort-field">
+                  <span>Sırala</span>
+                  <select id="sortSelect">
+                    <option value="recent">Tarih: yeni → eski</option>
+                    <option value="oldest">Tarih: eski → yeni</option>
+                    <option value="followers-desc">Takipçi: yüksek → düşük</option>
+                    <option value="followers-asc">Takipçi: düşük → yüksek</option>
+                    <option value="following-desc">Takip edilen: yüksek → düşük</option>
+                    <option value="posts-desc">Gönderi: yüksek → düşük</option>
+                    <option value="details">Bilgisi hazır olanlar</option>
+                    <option value="az">A - Z</option>
+                    <option value="za">Z - A</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="active-filter" id="activeFilter" hidden>
+              <span>Arama: <strong id="activeFilterText"></strong></span>
+              <button id="clearSearchButton" type="button">Temizle</button>
+            </div>
+            <div class="people-grid" id="peopleGrid"></div>
+            <div class="empty-state" id="emptyState" hidden>
+              <div aria-hidden="true">🪐</div>
+              <h3 id="emptyTitle">Burada kimse yok</h3>
+              <p id="emptyText">Bu kategori şu an boş görünüyor.</p>
+            </div>
+            <button class="load-more-button" id="loadMoreButton" type="button" hidden>Daha fazla göster</button>
+          </section>
+        </main>
+      </div>
+      <nav class="mobile-bottom-nav" aria-label="Mobil ana navigasyon">
+        <button class="is-active" type="button" data-category="overview"><span aria-hidden="true">⌁</span><small>Özet</small></button>
+        <button type="button" data-category="followers"><span aria-hidden="true">↓</span><small>Takipçi</small></button>
+        <button type="button" data-category="following"><span aria-hidden="true">↑</span><small>Takip</small></button>
+        <button type="button" data-category="notFollowingBack"><span aria-hidden="true">!</span><small>Dönmeyen</small></button>
+        <button id="mobileMoreButton" type="button"><span aria-hidden="true">•••</span><small>Diğer</small></button>
+      </nav>
+    </section>
+  </main>
+
+  <dialog class="app-dialog filter-dialog" id="filterDialog">
+    <button class="dialog-close" type="button" data-close-dialog aria-label="Pencereyi kapat">×</button>
+    <span class="step-label">AKILLI LİSTE</span>
+    <h2>Hesapları filtrele</h2>
+    <p class="dialog-lead">İlişki durumunu ve hesap büyüklüğünü birlikte daralt.</p>
+    <div class="filter-grid">
+      <label>
+        <span>İlişki</span>
+        <select id="relationshipFilter">
+          <option value="all">Tümü</option>
+          <option value="mutual">Karşılıklı</option>
+          <option value="follows-you">Sadece seni takip ediyor</option>
+          <option value="you-follow">Sadece sen takip ediyorsun</option>
+          <option value="new">Yeni takipçi</option>
+          <option value="lost">Takibi bırakan</option>
+        </select>
+      </label>
+      <label>
+        <span>Hesap bilgisi</span>
+        <select id="detailsFilter">
+          <option value="all">Tümü</option>
+          <option value="ready">Sayaçları hazır</option>
+          <option value="pending">Bilgisi bekleniyor</option>
+        </select>
+      </label>
+      <label>
+        <span>Takipçi ölçeği</span>
+        <select id="audienceFilter">
+          <option value="all">Tüm ölçekler</option>
+          <option value="under-1k">1.000 altı</option>
+          <option value="1k-10k">1.000 - 10.000</option>
+          <option value="10k-100k">10.000 - 100.000</option>
+          <option value="over-100k">100.000 üzeri</option>
+        </select>
+      </label>
+      <label>
+        <span>Profil fotoğrafı</span>
+        <select id="photoFilter">
+          <option value="all">Tümü</option>
+          <option value="with">Fotoğrafı olan</option>
+          <option value="without">Fotoğrafı olmayan</option>
+        </select>
+      </label>
+      <label>
+        <span>En az takipçi</span>
+        <input id="minFollowersFilter" type="number" min="0" max="5000000000" inputmode="numeric" placeholder="0">
+      </label>
+      <label>
+        <span>En fazla takipçi</span>
+        <input id="maxFollowersFilter" type="number" min="0" max="5000000000" inputmode="numeric" placeholder="Sınırsız">
+      </label>
+    </div>
+    <div class="filter-actions">
+      <button class="secondary-button" id="resetFiltersButton" type="button">Sıfırla</button>
+      <button class="primary-button" id="applyFiltersButton" type="button">Filtreleri uygula</button>
+    </div>
+  </dialog>
+
+  <dialog class="app-dialog disclosure-dialog" id="dataDisclosureDialog">
+    <span class="dialog-emoji" aria-hidden="true">🛡️</span>
+    <span class="step-label">AÇIK VERİ ONAYI</span>
+    <h2>Telefonunda hangi veriler kullanılacak?</h2>
+    <p class="dialog-lead">Devam etmeden önce Android bağlantısının çalışma biçimini açıkça onayla.</p>
+    <ul class="disclosure-list">
+      <li><strong>Okunanlar</strong><span>Kullanıcı adın, hesap kimliğin, takipçi/takip listelerin, profil fotoğrafı adresleri ve herkese açık hesap sayaçları.</span></li>
+      <li><strong>Nerede tutulur?</strong><span>En fazla sekiz analiz kaydı ve fotoğraf önbelleği yalnızca bu telefondaki özel uygulama alanında tutulur.</span></li>
+      <li><strong>Nereye bağlanır?</strong><span>İstekler doğrudan Instagram/Meta alan adlarına HTTPS ile gider. Takip Atlası geliştiricisine, reklam veya analiz servisine gönderilmez.</span></li>
+      <li><strong>Kontrol sende</strong><span>“Veriyi sil” seçeneği analizleri, fotoğraf önbelleğini ve uygulama içi Instagram oturumunu kaldırır.</span></li>
+    </ul>
+    <button class="text-button disclosure-policy-link" id="openPrivacyFromDisclosureButton" type="button">Gizlilik politikasını oku</button>
+    <div class="disclosure-actions">
+      <button class="secondary-button" id="cancelDisclosureButton" type="button">Şimdi değil</button>
+      <button class="primary-button" id="acceptDisclosureButton" type="button">Onayla ve Instagram'ı aç</button>
+    </div>
+  </dialog>
+
+  <dialog class="app-dialog privacy-dialog" id="privacyDialog">
+    <button class="dialog-close" type="button" data-close-dialog aria-label="Pencereyi kapat">×</button>
+    <span class="step-label">GİZLİLİK</span>
+    <h2>Verilerin cihazında kalır</h2>
+    <div class="privacy-copy">
+      <p>Takip Atlası hesap parolanı okumaz. Android girişi yalnızca <code>instagram.com</code> sayfasında yapılır.</p>
+      <p>Takip ilişkileri, kullanıcı kimlikleri, herkese açık sayaçlar ve önbelleğe alınan profil fotoğrafları uygulamanın özel yerel alanında işlenir. Reklam, üçüncü taraf analiz SDK'sı veya geliştirici veri sunucusu yoktur.</p>
+      <p>Instagram oturum çerezi yalnızca tam <code>www.instagram.com</code> API isteklerinde kullanılır; fotoğraf CDN'lerine gönderilmez. Android bulut yedeklemesi ve cihazlar arası veri aktarımı kapalıdır.</p>
+      <p>Yerel kayıtlarını ve uygulama içi oturumu menüdeki <strong>Profili değiştir → Veriyi sil</strong> yoluyla kaldırabilirsin.</p>
+      <p class="privacy-disclaimer">Takip Atlası, Instagram veya Meta tarafından geliştirilmemiş, desteklenmemiş ya da onaylanmamıştır.</p>
+    </div>
+    <a class="secondary-button privacy-full-link" href="privacy.html" target="_blank" rel="noreferrer">Tam gizlilik politikasını aç</a>
+  </dialog>
+
+  <dialog class="app-dialog theme-dialog" id="themeDialog">
+    <div class="dialog-topline"></div>
+    <button class="dialog-close" type="button" data-close-dialog aria-label="Pencereyi kapat">×</button>
+    <span class="dialog-emoji" aria-hidden="true">🎨</span>
+    <span class="step-label">12 ÖZEL GÖRÜNÜM</span>
+    <h2>Atlasını renklendir</h2>
+    <p class="dialog-lead">Ruh haline uygun görünümü seç. Tema seçimin bu cihazda hatırlanır.</p>
+    <div class="theme-grid" role="list" aria-label="Tema seçenekleri">
+      <button class="theme-option theme-option--atlas" type="button" data-theme-option="atlas" data-theme-name="Atlas" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Atlas <b>✓</b></strong><small>İmza görünüm</small></button>
+      <button class="theme-option theme-option--ocean" type="button" data-theme-option="ocean" data-theme-name="Okyanus" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Okyanus <b>✓</b></strong><small>Derin ve ferah</small></button>
+      <button class="theme-option theme-option--forest" type="button" data-theme-option="forest" data-theme-name="Orman" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Orman <b>✓</b></strong><small>Doğal ritim</small></button>
+      <button class="theme-option theme-option--sunset" type="button" data-theme-option="sunset" data-theme-name="Gün Batımı" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Gün Batımı <b>✓</b></strong><small>Sıcak enerji</small></button>
+      <button class="theme-option theme-option--sakura" type="button" data-theme-option="sakura" data-theme-name="Sakura" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Sakura <b>✓</b></strong><small>Yumuşak pembe</small></button>
+      <button class="theme-option theme-option--lavender" type="button" data-theme-option="lavender" data-theme-name="Lavanta" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Lavanta <b>✓</b></strong><small>Sakin ve yaratıcı</small></button>
+      <button class="theme-option theme-option--ice" type="button" data-theme-option="ice" data-theme-name="Buz" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Buz <b>✓</b></strong><small>Temiz ve keskin</small></button>
+      <button class="theme-option theme-option--sand" type="button" data-theme-option="sand" data-theme-name="Kum" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Kum <b>✓</b></strong><small>Toprak tonları</small></button>
+      <button class="theme-option theme-option--mono" type="button" data-theme-option="mono" data-theme-name="Mono" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Mono <b>✓</b></strong><small>Net kontrast</small></button>
+      <button class="theme-option theme-option--midnight" type="button" data-theme-option="midnight" data-theme-name="Gece" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Gece <b>✓</b></strong><small>Koyu ve dingin</small></button>
+      <button class="theme-option theme-option--neon" type="button" data-theme-option="neon" data-theme-name="Neon" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Neon <b>✓</b></strong><small>Gece ışıkları</small></button>
+      <button class="theme-option theme-option--cherry" type="button" data-theme-option="cherry" data-theme-name="Vişne" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Vişne <b>✓</b></strong><small>Cesur ve şık</small></button>
+    </div>
+  </dialog>
+
+  <dialog class="app-dialog confirm-dialog" id="confirmDialog">
+    <button class="dialog-close" type="button" data-close-dialog aria-label="Pencereyi kapat">×</button>
+    <span class="dialog-emoji" aria-hidden="true">🗂️</span>
+    <h2>Profili değiştirmek istiyor musun?</h2>
+    <p class="dialog-lead">Mevcut analiz cihazında kalabilir veya tüm yerel kayıtları silebilirsin.</p>
+    <div class="confirm-actions">
+      <button class="secondary-button" id="keepDataButton" type="button">Veriyi koru, çık</button>
+      <button class="danger-button" id="deleteDataButton" type="button">Veriyi sil</button>
+    </div>
+  </dialog>
+
+  <div class="loading-overlay" id="loadingOverlay" hidden aria-live="polite" aria-busy="true">
+    <div class="loader-orbit"><span></span><i></i></div>
+    <strong id="loadingTitle">Takip haritan hazırlanıyor</strong>
+    <p id="loadingText">Listeler karşılaştırılıyor...</p>
+  </div>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+
+  <script src="logic.js?v=14"></script>
+  <script src="storage.js?v=14"></script>
+  <script src="app.js?v=14"></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Takip Atlası</string>
+    <string name="title_activity_main">Takip Atlası</string>
+    <string name="package_name">com.takipatlasi.app</string>
+    <string name="custom_url_scheme">com.takipatlasi.app</string>
+    <string name="collector_title">Instagram bağlantısı</string>
+    <string name="collector_close">Kapat</string>
+    <string name="collector_close_description">Instagram bağlantısını kapat</string>
+    <string name="collector_waiting_login">Instagram sayfasında giriş yap; tamamlanınca tarama otomatik başlayacak.</string>
+    <string name="collector_security_note">Şifren yalnızca instagram.com sayfasına girilir ve Takip Atlası tarafından okunmaz.</string>
+    <string name="collector_session_found">Oturum bulundu, takip listeleri hazırlanıyor…</string>
+    <string name="collector_network_error">Instagram sayfası yüklenemedi. İnternet bağlantını kontrol edip yeniden dene.</string>
+    <string name="collector_script_error">Android takip toplayıcısı başlatılamadı.</string>
+    <string name="collector_webview_update">Android System WebView veya Chrome eski. Play Store’dan güncelleyip tekrar dene.</string>
+    <string name="collector_navigation_error">Instagram sayfası tarama sırasında değişti. Yeniden dene.</string>
+    <string name="collector_stalled">Instagram uzun süre yanıt vermedi. İnternet bağlantını kontrol edip yeniden dene.</string>
+    <string name="collector_invalid_response">Instagram geçersiz bir liste yanıtı verdi.</string>
+    <string name="collector_too_many_records">Liste güvenlik sınırını aştığı için tarama durduruldu.</string>
+    <string name="collector_complete">Takip listeleri cihazında hazırlandı.</string>
+    <string name="collector_cancelled">Instagram taraması durduruldu.</string>
+    <string name="collector_closed">Instagram ekranı kapatıldı.</string>
+    <string name="collector_login_timeout">Instagram girişi için bekleme süresi doldu.</string>
+    <string name="collector_generic_error">Instagram taraması tamamlanamadı.</string>
+</resources>

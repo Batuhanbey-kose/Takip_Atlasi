@@ -1,0 +1,54 @@
+name: Android Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run android:sync
+      - run: chmod +x android/gradlew
+      - name: Restore release signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "Android signing secrets are missing"; exit 1; }
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/github-release.jks
+          printf 'storeFile=github-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > android/keystore.properties
+      - name: Build signed APK
+        working-directory: android
+        run: ./gradlew testDebugUnitTest lintDebug assembleRelease --no-daemon
+      - name: Create checksum
+        run: |
+          cp android/app/build/outputs/apk/release/Takip-Atlasi-*.apk Takip-Atlasi.apk
+          sha256sum Takip-Atlasi.apk > Takip-Atlasi.apk.sha256
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          generate_release_notes: true
+          files: |
+            Takip-Atlasi.apk
+            Takip-Atlasi.apk.sha256

@@ -1,0 +1,17 @@
+name: Özellik önerisi
+description: Android uygulaması için bir geliştirme öner.
+title: "[Öneri] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Çözülmesini istediğin ihtiyaç
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Önerdiğin çözüm
+    validations:
+      required: true

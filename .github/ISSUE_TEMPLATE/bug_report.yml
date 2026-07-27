@@ -1,0 +1,35 @@
+name: Hata bildirimi
+description: Android uygulamasındaki tekrarlanabilir bir sorunu bildir.
+title: "[Hata] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Instagram parolası, çerez, keystore veya özel hesap verisi paylaşma.
+  - type: input
+    id: version
+    attributes:
+      label: Uygulama sürümü
+      placeholder: "1.2"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Telefon ve Android sürümü
+      placeholder: "Samsung S23, Android 15"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Tekrarlama adımları
+      placeholder: Sorunun oluşması için yaptığın işlemleri sırayla yaz.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Beklenen ve gerçekleşen sonuç
+    validations:
+      required: true

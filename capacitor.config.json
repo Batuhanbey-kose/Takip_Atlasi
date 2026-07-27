@@ -1,0 +1,11 @@
+{
+  "appId": "com.takipatlasi.app",
+  "appName": "Takip Atlası",
+  "webDir": "www",
+  "android": {
+    "minWebViewVersion": 86
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

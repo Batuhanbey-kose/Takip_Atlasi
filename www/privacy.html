@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17142d">
+  <title>Takip Atlası Gizlilik Politikası</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #17142d; background: #f5f1e8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 90% 5%, rgba(115,87,246,.14), transparent 30%), #f5f1e8; }
+    main { width: min(820px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 80px; }
+    header, section { border: 1px solid rgba(23,20,45,.1); border-radius: 22px; background: rgba(255,253,248,.84); box-shadow: 0 18px 55px rgba(23,20,45,.07); }
+    header { padding: clamp(28px, 7vw, 54px); background: #17142d; color: white; }
+    header span { color: #c7eb55; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; }
+    h1 { margin: 10px 0 12px; font-size: clamp(34px, 8vw, 58px); line-height: 1; letter-spacing: -2px; }
+    header p { max-width: 620px; margin: 0; color: rgba(255,255,255,.66); line-height: 1.7; }
+    section { margin-top: 14px; padding: clamp(24px, 5vw, 38px); }
+    h2 { margin: 0 0 12px; font-size: 21px; }
+    p, li { color: #625d6b; font-size: 14px; line-height: 1.75; }
+    ul { margin: 10px 0 0; padding-left: 20px; }
+    code { color: #5843b5; font-family: ui-monospace, monospace; }
+    .notice { border-left: 4px solid #ff6f61; }
+    a { color: #5843b5; }
+    footer { padding-top: 24px; color: #7a7480; font-size: 12px; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span>TAKİP ATLASI</span>
+      <h1>Gizlilik Politikası</h1>
+      <p>Son güncelleme: 24 Temmuz 2026. Bu politika yalnızca Takip Atlası Android uygulaması için geçerlidir.</p>
+    </header>
+
+    <section>
+      <h2>1. Temel yaklaşım</h2>
+      <p>Takip Atlası, takip analizini kullandığın cihaz üzerinde gerçekleştirir. Geliştiriciye ait bir kullanıcı verisi sunucusu, reklam SDK'sı veya üçüncü taraf davranış analizi SDK'sı kullanılmaz. Uygulama Instagram veya Meta tarafından geliştirilmemiş, desteklenmemiş ya da onaylanmamıştır.</p>
+    </section>
+
+    <section>
+      <h2>2. İşlenen veriler</h2>
+      <ul>
+        <li>Instagram kullanıcı adı ve sayısal hesap kimliği.</li>
+        <li>Takipçi ve takip edilen kullanıcı adları ile ilişki durumu.</li>
+        <li>Herkese açık takipçi, takip edilen ve gönderi sayaçları.</li>
+        <li>Profil fotoğrafı adresleri ve cihazda önbelleğe alınan küçük profil görselleri.</li>
+        <li>Yenileme zamanı, değişim karşılaştırmaları ve en fazla sekiz yerel analiz kaydı.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>3. Instagram oturumu</h2>
+      <p>Parola Takip Atlası arayüzüne girilmez. Android'de giriş, uygulama içindeki <code>https://www.instagram.com</code> sayfasında yapılır. Oturum çerezi yalnızca tam <code>www.instagram.com</code> alanına yapılan hesap bilgisi isteklerinde kullanılır. Çerez profil fotoğrafı CDN'lerine, geliştiriciye veya başka bir üçüncü tarafa gönderilmez.</p>
+    </section>
+
+    <section>
+      <h2>4. Amaç ve hukuki tercih</h2>
+      <p>Veriler yalnızca kullanıcının talep ettiği takip ilişkisi analizi, sıralama, filtreleme, profil kartları, değişim geçmişi ve güvenlik amaçlarıyla işlenir. Android bağlantısı ilk kullanımda açık onay ister; kullanıcı bağlantıyı başlatmadan demo modunu seçebilir.</p>
+    </section>
+
+    <section>
+      <h2>5. Saklama ve güvenlik</h2>
+      <p>Analizler IndexedDB veya cihazın eşdeğer özel uygulama alanında tutulur. Profil fotoğrafı önbelleği Android'in yedeklenmeyen özel klasöründedir ve boyut sınırı uygulanır. Android bulut yedeklemesi ile cihazdan cihaza sistem aktarımı devre dışıdır. Ağ istekleri HTTPS kullanır ve alan adı/yanıt boyutu doğrulaması uygulanır.</p>
+    </section>
+
+    <section>
+      <h2>6. Paylaşım ve satış</h2>
+      <p>Takip Atlası geliştiricisi kişisel verileri satmaz, reklam amacıyla paylaşmaz ve kendi sunucusuna toplamaz. Instagram bağlantısı sırasında kullanıcı tarafından başlatılan istekler doğrudan Meta altyapısına gider ve Meta'nın kendi gizlilik koşullarına tabidir.</p>
+    </section>
+
+    <section>
+      <h2>7. Silme ve kullanıcı hakları</h2>
+      <p>Uygulamadaki <strong>Profili değiştir → Veriyi sil</strong> seçeneği analizleri, yerel fotoğraf önbelleğini ve uygulama içi Instagram oturumunu kaldırır. Uygulamanın Android ayarlarından verilerini temizlemek veya uygulamayı kaldırmak da yerel verileri siler. Geliştirici sunucusunda hesap oluşturulmadığı için ayrıca sunucu hesabı silme işlemi yoktur.</p>
+    </section>
+
+    <section>
+      <h2>8. Çocuklar ve değişiklikler</h2>
+      <p>Uygulama çocuklara yönelik tasarlanmamıştır. Politika; özellik, mevzuat veya mağaza gereksinimleri değiştiğinde güncellenebilir. Güncelleme tarihi bu sayfanın başında gösterilir.</p>
+    </section>
+
+    <section class="notice">
+      <h2>9. İletişim</h2>
+      <p>Destek talepleri için uygulamayı indirdiğin GitHub deposunun Issues bölümünü kullanabilirsin. Kişisel hesap verilerini, oturum bilgilerini veya özel ekran görüntülerini herkese açık issue içinde paylaşma.</p>
+    </section>
+
+    <footer>Takip Atlası · Yerel takip analizi</footer>
+  </main>
+</body>
+</html>
