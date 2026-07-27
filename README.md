@@ -26,6 +26,16 @@ En güncel imzalı APK için yukarıdaki **Tek Tıkla İndir** düğmesini kulla
 
 Android ilk kurulumda, APK'yı açtığın uygulamaya **Bilinmeyen uygulamaları yükleme** izni vermeni isteyebilir. Yeni sürümler aynı imzayla üretildiği için APK'yı mevcut kurulumun üzerine yükleyerek verilerini koruyabilirsin.
 
+> [!NOTE]
+> **Play Protect indirmeyi veya kurulumu bekletirse:** Takip Atlası Google Play'de yayımlanmadığı için bazı cihazlar APK'yı `İndiriliyor...` ekranında tutabilir ya da bilinmeyen uygulama uyarısı gösterebilir. Önce sunulan **Yine de yükle** seçeneğini kullan. Bu seçenek yoksa:
+>
+> 1. Yalnızca yukarıdaki resmi GitHub bağlantısını kullandığından emin ol.
+> 2. Play Store > profil resmi > **Play Protect** > Ayarlar bölümündeki **Uygulamaları Play Protect ile tara** seçeneğini geçici olarak kapat.
+> 3. APK'yı indirip kurduktan sonra aynı seçeneği hemen yeniden aç.
+> 4. Play Protect ekranındaki **Tara** düğmesiyle kontrol yap; resmi yayın APK'sında sorun bulunmamalıdır.
+>
+> Play Protect'i kapalı bırakma ve APK'yı başka kaynaklardan indirme.
+
 ## Neler Sunuyor?
 
 | Takip haritası | Hesap detayları | Yerel ve özel |
