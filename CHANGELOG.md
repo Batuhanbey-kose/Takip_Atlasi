@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.4 - 2026-10-12
+
+- Recover a missing username from the requested profile only when its numeric ID matches the Instagram session.
+- Explain how to retry with a username when Instagram hides account details; never save data for an unverified account.
+
 ## 1.2.3 - 2026-10-12
 
 - Verify missing Instagram profile counts through the matching web profile before collecting lists.

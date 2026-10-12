@@ -191,13 +191,32 @@
       }
     }
 
-    let userId = normalizeUserId((user && (user.pk || user.pk_id || user.id)) || cookieUserId);
-    const username = normalizeUsername(user && user.username);
+    const userId = normalizeUserId((user && (user.pk || user.pk_id || user.id)) || cookieUserId);
+    let username = normalizeUsername(user && user.username);
     if (!userId) {
       throw new Error("Instagram hesap kimliği okunamadı. Oturumu kapatıp yeniden giriş yap.");
     }
+    if (!username && requestedUsername) {
+      try {
+        const payload = await instagramRequest(
+          `/api/v1/users/web_profile_info/?username=${encodeURIComponent(requestedUsername)}`,
+          0,
+        );
+        const webUser = payload.data?.user || payload.graphql?.user || payload.user;
+        const webUserId = normalizeUserId(webUser && (webUser.pk || webUser.pk_id || webUser.id));
+        if (webUser && webUserId === userId &&
+          normalizeUsername(webUser.username) === requestedUsername) {
+          user = { ...(user || {}), ...webUser };
+          username = requestedUsername;
+        }
+      } catch (error) {
+        // Only an exact match to the session's numeric identity can confirm the account.
+      }
+    }
     if (!username) {
-      throw new Error("Instagram kullanıcı adı okunamadı.");
+      throw new Error(requestedUsername
+        ? "Instagram kullanıcı adı oturum kimliğiyle doğrulanamadı. Instagram oturumunu yenileyip tekrar dene."
+        : "Instagram kullanıcı adı okunamadı. Profil alanına kullanıcı adını yazıp tekrar dene.");
     }
 
     let followerCount = profileCount(user, "follower_count", "edge_followed_by");
