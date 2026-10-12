@@ -19,6 +19,8 @@
   const requestedUsername = normalizeUsername(
     window.__TAKIP_ATLASI_REQUESTED_USERNAME__,
   );
+  const sessionUserId = normalizeUserId(window.__TAKIP_ATLASI_SESSION_USER_ID__) ||
+    normalizeUserId(readCookie("ds_user_id"));
   let latestStatus = {
     phase: "profile",
     message: "Instagram hesabı doğrulanıyor...",
@@ -56,8 +58,20 @@
   }
 
   function normalizeUserId(value) {
+    // Instagram also returns numeric IDs. Once a JSON number exceeds 2^53 - 1,
+    // converting it to a string silently changes the ID and breaks verification.
+    if (typeof value === "number" && !Number.isSafeInteger(value)) {
+      return "";
+    }
     const userId = String(value || "").trim();
     return /^\d{1,30}$/.test(userId) ? userId : "";
+  }
+
+  function userIdFrom(user) {
+    if (!user) {
+      return "";
+    }
+    return normalizeUserId(user.pk_id) || normalizeUserId(user.id) || normalizeUserId(user.pk);
   }
 
   function normalizeCount(value) {
@@ -87,7 +101,20 @@
 
   function readCookie(name) {
     const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
-    return match ? decodeURIComponent(match[1]) : "";
+    try {
+      return match ? decodeURIComponent(match[1]) : "";
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function requestDiagnostic(error) {
+    if (Number.isInteger(error && error.httpStatus)) {
+      const reason = error.responseKind === "json" ? "/JSON yok" :
+        error.responseKind === "fail" ? "/başarısız" : "";
+      return `HTTP ${error.httpStatus}${reason}`;
+    }
+    return error && /zaman aşımına/i.test(error.message) ? "zaman aşımı" : "bağlantı hatası";
   }
 
   async function instagramRequest(pathname, retries = 2) {
@@ -139,15 +166,23 @@
       }
 
       if (response.status === 401 || response.status === 403) {
-        throw new Error("Instagram oturumu doğrulanamadı. Yeniden giriş yapmayı dene.");
+        const error = new Error("Instagram oturumu doğrulanamadı. Yeniden giriş yapmayı dene.");
+        error.httpStatus = response.status;
+        throw error;
       }
       if (!response.ok || !payload) {
-        throw new Error(`Instagram liste isteğini reddetti (HTTP ${response.status}).`);
+        const error = new Error(`Instagram liste isteğini reddetti (HTTP ${response.status}).`);
+        error.httpStatus = response.status;
+        error.responseKind = payload ? "http" : "json";
+        throw error;
       }
       if (payload.status === "fail") {
-        throw new Error(
+        const error = new Error(
           payload.message || payload.error_type || "Instagram isteği başarısız oldu.",
         );
+        error.httpStatus = response.status;
+        error.responseKind = "fail";
+        throw error;
       }
       return payload;
     }
@@ -157,90 +192,100 @@
 
   async function currentAccount() {
     let user = null;
-    const cookieUserId = normalizeUserId(readCookie("ds_user_id"));
-    try {
-      const payload = await instagramRequest(
-        "/api/v1/accounts/current_user/?edit=true",
-        0,
-      );
-      user = payload.user || payload.form_data || payload;
-    } catch (error) {
-      user = null;
+    const checks = [];
+    async function accountRequest(label, path) {
+      update({ phase: "profile", message: `Instagram hesap sorgusu: ${label}...` });
+      try {
+        const payload = await instagramRequest(path, 0);
+        checks.push(`${label}:OK`);
+        return payload;
+      } catch (error) {
+        checks.push(`${label}:${requestDiagnostic(error)}`);
+        return null;
+      }
+    }
+    const current = await accountRequest("hesap", "/api/v1/accounts/current_user/?edit=true");
+    if (current) {
+      user = current.user || current.form_data || current;
+    }
+    if (!userIdFrom(user) || !normalizeUsername(user && user.username) ||
+      profileCount(user, "follower_count", "edge_followed_by") === null ||
+      profileCount(user, "following_count", "edge_follow") === null) {
+      const basic = await accountRequest("temel", "/api/v1/accounts/current_user/");
+      const basicUser = basic && (basic.user || basic.form_data || basic);
+      const previousId = userIdFrom(user);
+      const basicId = userIdFrom(basicUser);
+      if (basicUser && (!previousId || !basicId || previousId === basicId)) {
+        user = { ...(user || {}), ...basicUser };
+      } else if (basicUser) {
+        checks.push("temel:kimlik farklı");
+      }
     }
 
-    const initialUserId = normalizeUserId(
-      (user && (user.pk || user.pk_id || user.id)) || cookieUserId,
-    );
+    const initialUserId = userIdFrom(user) || sessionUserId;
     // The current-user endpoint already includes counts on some Instagram versions.
     // Avoid a second request unless the account identity or totals are missing.
     if (initialUserId && (!normalizeUsername(user && user.username) ||
       profileCount(user, "follower_count", "edge_followed_by") === null ||
       profileCount(user, "following_count", "edge_follow") === null)) {
-      try {
-        const payload = await instagramRequest(
-          `/api/v1/users/${encodeURIComponent(initialUserId)}/info/`,
-          0,
-        );
-        const detailedUser = payload.user || payload;
-        if (detailedUser && normalizeUserId(detailedUser.pk || detailedUser.pk_id || detailedUser.id) === initialUserId &&
-          normalizeUsername(detailedUser.username)) {
-          user = { ...(user || {}), ...detailedUser };
-        }
-      } catch (error) {
-        // The current-user response remains usable if the detail endpoint is unavailable.
+      const payload = await accountRequest(
+        "detay",
+        `/api/v1/users/${encodeURIComponent(initialUserId)}/info/`,
+      );
+      const detailedUser = payload && (payload.user || payload);
+      if (detailedUser && userIdFrom(detailedUser) === initialUserId &&
+        normalizeUsername(detailedUser.username)) {
+        user = { ...(user || {}), ...detailedUser };
+      } else if (detailedUser) {
+        checks.push("detay:kimlik farklı");
       }
     }
 
-    const userId = normalizeUserId((user && (user.pk || user.pk_id || user.id)) || cookieUserId);
+    const userId = userIdFrom(user) || sessionUserId;
     let username = normalizeUsername(user && user.username);
     if (!userId) {
-      throw new Error("Instagram hesap kimliği okunamadı. Oturumu kapatıp yeniden giriş yap.");
+      throw new Error(`Instagram hesap kimliği okunamadı (${checks.join(", ")}). Oturumu kapatıp yeniden giriş yap.`);
     }
     if (!username && requestedUsername) {
-      try {
-        const payload = await instagramRequest(
-          `/api/v1/users/web_profile_info/?username=${encodeURIComponent(requestedUsername)}`,
-          0,
-        );
-        const webUser = payload.data?.user || payload.graphql?.user || payload.user;
-        const webUserId = normalizeUserId(webUser && (webUser.pk || webUser.pk_id || webUser.id));
-        if (webUser && webUserId === userId &&
-          normalizeUsername(webUser.username) === requestedUsername) {
-          user = { ...(user || {}), ...webUser };
-          username = requestedUsername;
-        }
-      } catch (error) {
-        // Only an exact match to the session's numeric identity can confirm the account.
+      const payload = await accountRequest(
+        "profil",
+        `/api/v1/users/web_profile_info/?username=${encodeURIComponent(requestedUsername)}`,
+      );
+      const webUser = payload && (payload.data?.user || payload.graphql?.user || payload.user);
+      if (webUser && userIdFrom(webUser) === userId &&
+        normalizeUsername(webUser.username) === requestedUsername) {
+        user = { ...(user || {}), ...webUser };
+        username = requestedUsername;
+      } else if (payload) {
+        checks.push("profil:kimlik farklı veya kullanıcı yok");
       }
     }
     if (!username) {
       throw new Error(requestedUsername
-        ? "Instagram kullanıcı adı oturum kimliğiyle doğrulanamadı. Instagram oturumunu yenileyip tekrar dene."
-        : "Instagram kullanıcı adı okunamadı. Profil alanına kullanıcı adını yazıp tekrar dene.");
+        ? `Instagram kullanıcı adı doğrulanamadı (${checks.join(", ")}). Hesap API'si reddedildiyse Instagram oturumunu yenile.`
+        : `Instagram kullanıcı adı okunamadı (${checks.join(", ")}). Profil alanına kullanıcı adını yazıp tekrar dene.`);
     }
 
     let followerCount = profileCount(user, "follower_count", "edge_followed_by");
     let followingCount = profileCount(user, "following_count", "edge_follow");
     if (followerCount === null || followingCount === null) {
-      try {
-        const payload = await instagramRequest(
-          `/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`,
-          0,
-        );
-        const webUser = payload.data?.user || payload.graphql?.user || payload.user;
-        const webUserId = normalizeUserId(webUser && (webUser.pk || webUser.pk_id || webUser.id));
-        if (webUser && normalizeUsername(webUser.username) === username &&
-          (!webUserId || webUserId === userId)) {
-          followerCount ??= profileCount(webUser, "follower_count", "edge_followed_by");
-          followingCount ??= profileCount(webUser, "following_count", "edge_follow");
-          user = { ...webUser, ...user };
-        }
-      } catch (error) {
-        // Never use guessed totals: a truncated relationship list must not be saved.
+      const payload = await accountRequest(
+        "sayaç",
+        `/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`,
+      );
+      const webUser = payload && (payload.data?.user || payload.graphql?.user || payload.user);
+      const webUserId = userIdFrom(webUser);
+      if (webUser && normalizeUsername(webUser.username) === username &&
+        (!webUserId || webUserId === userId)) {
+        followerCount ??= profileCount(webUser, "follower_count", "edge_followed_by");
+        followingCount ??= profileCount(webUser, "following_count", "edge_follow");
+        user = { ...webUser, ...user };
+      } else if (payload) {
+        checks.push("sayaç:kimlik farklı veya kullanıcı yok");
       }
     }
     if (followerCount === null || followingCount === null) {
-      throw new Error("Instagram liste toplamlarını doğrulayamadı. Bir süre sonra yeniden giriş yapıp dene; eksik veri kaydedilmedi.");
+      throw new Error(`Instagram liste toplamlarını doğrulayamadı (${checks.join(", ")}); eksik veri kaydedilmedi.`);
     }
 
     return {
@@ -258,7 +303,8 @@
   }
 
   function profileCount(user, directKey, edgeKey) {
-    return normalizeCount(user && (user[directKey] ?? user[edgeKey]?.count));
+    return normalizeCount(user && user[directKey]) ??
+      normalizeCount(user && user[edgeKey]?.count);
   }
 
   function pageUsers(payload) {
@@ -280,7 +326,7 @@
         return {
           username,
           timestamp: 0,
-          instagramUserId: normalizeUserId(user.pk || user.pk_id || user.id),
+          instagramUserId: userIdFrom(user),
           followerCount: normalizeCount(
             user.follower_count ?? user.edge_followed_by?.count,
           ),
@@ -393,7 +439,7 @@
     try {
       update({
         phase: "profile",
-        message: "Oturum doğrulandı, hesap bilgisi okunuyor...",
+        message: "Oturum çerezi bulundu, Instagram hesabı sorgulanıyor...",
         progress: 17,
       });
       const account = await currentAccount();

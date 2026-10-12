@@ -52,6 +52,7 @@ Android ilk kurulumda, APK'yı açtığın uygulamaya **Bilinmeyen uygulamaları
 3. Takip listeleri telefonda toplanır, karşılaştırılır ve analiz ekranı açılır.
 
 Instagram kullanıcı adın otomatik okunamazsa başlangıç ekranındaki profil alanına yazıp tekrar dene. Uygulama adı yalnızca açık oturumun hesap kimliğiyle eşleşirse kabul eder; yeşil tik tek başına hesap doğrulaması değildir.
+Hesap sorguları Instagram tarafından reddedilirse uygulama hangi sorguda hangi HTTP yanıtını aldığını gösterir. Bu hata kodları oturum çerezlerini veya hesap kimliğini içermez.
 
 Takibi bırakanları ve yeni takipçileri görebilmek için farklı zamanlarda en az iki tarama gerekir. Sayaç tabanlı sıralama seçildiğinde ilgili listedeki bütün hesap bilgileri kontrollü paralel isteklerle hazırlanır.
 

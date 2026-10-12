@@ -78,6 +78,9 @@
   }
 
   function normalizeInstagramUserId(value) {
+    if (typeof value === "number" && !Number.isSafeInteger(value)) {
+      return "";
+    }
     const userId = String(value || "").trim();
     return /^\d{1,30}$/.test(userId) ? userId : "";
   }

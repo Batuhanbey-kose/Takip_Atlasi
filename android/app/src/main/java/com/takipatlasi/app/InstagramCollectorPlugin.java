@@ -480,7 +480,8 @@ public class InstagramCollectorPlugin extends Plugin {
 
         try {
             String script = readCollectorScript();
-            String bootstrap = "window.__TAKIP_ATLASI_REQUESTED_USERNAME__=" + JSONObject.quote(requestedUsername) + ";\n" + script;
+            String bootstrap = "window.__TAKIP_ATLASI_REQUESTED_USERNAME__=" + JSONObject.quote(requestedUsername) +
+                ";window.__TAKIP_ATLASI_SESSION_USER_ID__=" + JSONObject.quote(sessionUserId()) + ";\n" + script;
             collectorWebView.evaluateJavascript(bootstrap, null);
         } catch (IOException error) {
             finishWithError(getContext().getString(R.string.collector_script_error));
@@ -725,6 +726,20 @@ public class InstagramCollectorPlugin extends Plugin {
             }
         }
         return false;
+    }
+
+    private String sessionUserId() {
+        String cookies = CookieManager.getInstance().getCookie("https://www.instagram.com/");
+        if (cookies == null) {
+            return "";
+        }
+        for (String part : cookies.split(";")) {
+            String cookie = part.trim();
+            if (cookie.startsWith("ds_user_id=")) {
+                return normalizeUserId(cookie.substring("ds_user_id=".length()));
+            }
+        }
+        return "";
     }
 
     private boolean isReadyInstagramUrl(String value) {

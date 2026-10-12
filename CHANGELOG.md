@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.5 - 2026-10-12
+
+- Read the signed-in account ID from Android's Instagram cookie store when it is hidden from page JavaScript.
+- Reject rounded numeric Instagram IDs and prefer exact string IDs; try the basic current-user endpoint when the edit endpoint omits account details.
+- Show per-endpoint HTTP or response-format diagnostics when Instagram refuses account verification, without exposing cookies or account IDs.
+
 ## 1.2.4 - 2026-10-12
 
 - Recover a missing username from the requested profile only when its numeric ID matches the Instagram session.

@@ -20,6 +20,7 @@ async function runAndroidCollector(fetchImpl, options = {}) {
     };
     sandbox.window = {
       __TAKIP_ATLASI_REQUESTED_USERNAME__: options.requestedUsername ?? "owner",
+      __TAKIP_ATLASI_SESSION_USER_ID__: options.sessionUserId ?? "",
       setTimeout: (callback) => setImmediate(callback),
       clearTimeout: (handle) => clearImmediate(handle),
       TakipAtlasiNative: {
@@ -82,6 +83,8 @@ test("kullanıcı adı ve profil bağlantısını güvenli biçimde normalleşti
   assert.equal(logic.normalizeUsername(" @My.Profile "), "my.profile");
   assert.equal(logic.normalizeUsername("https://instagram.com/My_Profile/?hl=tr"), "my_profile");
   assert.equal(logic.normalizeUsername("<script>"), "");
+  assert.equal(logic.normalizeInstagramUserId("12345678901234567890"), "12345678901234567890");
+  assert.equal(logic.normalizeInstagramUserId(12345678901234567890), "");
 });
 
 test("profil fotoğrafını güvenli CDN adresiyle korur ve analiz kaydına taşır", () => {
@@ -291,6 +294,78 @@ test("Android toplayıcı hesap uçları reddedilince oturum kimliğiyle eşleş
   assert.ok(requests.some((request) => request.includes("/followers/")));
 });
 
+test("Android toplayıcı düzenleme uç noktası kapalıyken temel hesap yanıtını dener", async () => {
+  const requests = [];
+  const result = await runAndroidCollector(async (pathname) => {
+    requests.push(pathname);
+    if (pathname.includes("edit=true")) {
+      return { ok: false, status: 403, json: async () => ({}) };
+    }
+    if (pathname === "/api/v1/accounts/current_user/") {
+      return { ok: true, status: 200, json: async () => ({ user: { pk_id: "999", username: "owner", follower_count: 0, following_count: 0 } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ users: [] }) };
+  });
+
+  assert.equal(result.type, "complete");
+  assert.ok(requests.includes("/api/v1/accounts/current_user/"));
+  assert.ok(requests.every((request) => !request.includes("/users/web_profile_info/")));
+});
+
+test("Android toplayıcı büyük hesap numarasını yuvarlamaz ve yerel WebView kimliğini doğrular", async () => {
+  const exactId = "12345678901234567890";
+  const requests = [];
+  const result = await runAndroidCollector(async (pathname) => {
+    requests.push(pathname);
+    if (pathname.includes("/users/web_profile_info/")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { user: { pk: Number(exactId), id: exactId, username: "owner", follower_count: 0, following_count: 0 } } }),
+      };
+    }
+    if (pathname.includes("/friendships/")) {
+      return { ok: true, status: 200, json: async () => ({ users: [] }) };
+    }
+    return { ok: false, status: 403, json: async () => ({}) };
+  }, { cookie: "csrftoken=test-token", sessionUserId: exactId });
+
+  assert.equal(result.type, "complete");
+  assert.ok(requests.some((request) => request.includes(`/friendships/${exactId}/followers/`)));
+  assert.ok(requests.every((request) => !request.includes(`/friendships/${Number(exactId)}/`)));
+});
+
+test("Android toplayıcı yuvarlanmış hesap numarasını kimlik doğrulaması saymaz", async () => {
+  const exactId = "12345678901234567890";
+  const result = await runAndroidCollector(async (pathname) => {
+    if (pathname.includes("/users/web_profile_info/")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { user: { pk: Number(exactId), username: "owner", follower_count: 0, following_count: 0 } } }),
+      };
+    }
+    return { ok: false, status: 403, json: async () => ({}) };
+  }, { cookie: "csrftoken=test-token", sessionUserId: exactId });
+
+  assert.equal(result.type, "error");
+  assert.match(result.message, /profil:kimlik farklı/);
+});
+
+test("Android toplayıcı API engelini tanılanabilir ama çerezsiz mesajla bildirir", async () => {
+  const result = await runAndroidCollector(async () => ({
+    ok: false,
+    status: 403,
+    json: async () => ({}),
+  }));
+
+  assert.equal(result.type, "error");
+  assert.match(result.message, /hesap:HTTP 403/);
+  assert.match(result.message, /temel:HTTP 403/);
+  assert.match(result.message, /profil:HTTP 403/);
+  assert.doesNotMatch(result.message, /ds_user_id|sessionid|test-token/);
+});
+
 test("Android toplayıcı çerezde kullanıcı kimliği yokken doğrulanmış hesap yanıtını kullanır", async () => {
   const response = (payload, status = 200) => ({ ok: status === 200, status, json: async () => payload });
   const result = await runAndroidCollector(async (pathname) => {
@@ -322,7 +397,7 @@ test("Android toplayıcı başka hesaba ait web profilini oturum sahibi saymaz",
   });
 
   assert.equal(result.type, "error");
-  assert.match(result.message, /oturum kimliğiyle doğrulanamadı/);
+  assert.match(result.message, /profil:kimlik farklı/);
   assert.ok(requests.every((request) => !request.includes("/followers/")));
 });
 
@@ -535,7 +610,7 @@ test("Android toplayıcı hesap kimliğini doğrulamadan istenen kullanıcı ad�
   }));
 
   assert.equal(result.type, "error");
-  assert.match(result.message, /oturum kimliğiyle doğrulanamadı/);
+  assert.match(result.message, /hesap:HTTP 500/);
 });
 
 test("Android toplayıcı eklentisi uygulamaya kayıtlı ve Instagram kökenine sınırlı", () => {
@@ -554,6 +629,7 @@ test("Android toplayıcı eklentisi uygulamaya kayıtlı ve Instagram kökenine 
   assert.match(mainActivity, /registerPlugin\(InstagramCollectorPlugin\.class\)/);
   assert.match(plugin, /@CapacitorPlugin\(name = "InstagramCollector"\)/);
   assert.match(plugin, /Collections\.singleton\("https:\/\/www\.instagram\.com"\)/);
+  assert.match(plugin, /JSONObject\.quote\(sessionUserId\(\)\)/);
   assert.match(plugin, /MAX_PAGE_USERS = 100/);
   assert.doesNotMatch(plugin, /addJavascriptInterface/);
   assert.equal(capacitorConfig.android.minWebViewVersion, 86);

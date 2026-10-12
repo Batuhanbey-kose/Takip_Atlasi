@@ -9,7 +9,7 @@
     <string name="collector_close_description">Instagram bağlantısını kapat</string>
     <string name="collector_waiting_login">Instagram sayfasında giriş yap; tamamlanınca tarama otomatik başlayacak.</string>
     <string name="collector_security_note">Şifren yalnızca instagram.com sayfasına girilir ve Takip Atlası tarafından okunmaz.</string>
-    <string name="collector_session_found">Oturum bulundu, takip listeleri hazırlanıyor…</string>
+    <string name="collector_session_found">Oturum çerezi bulundu, Instagram hesabı doğrulanıyor…</string>
     <string name="collector_network_error">Instagram sayfası yüklenemedi. İnternet bağlantını kontrol edip yeniden dene.</string>
     <string name="collector_script_error">Android takip toplayıcısı başlatılamadı.</string>
     <string name="collector_webview_update">Android System WebView veya Chrome eski. Play Store’dan güncelleyip tekrar dene.</string>
