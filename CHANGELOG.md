@@ -7,6 +7,7 @@
 - Wait for login navigation to settle before starting collection.
 - Stop metadata batches when Instagram asks for a pause and reduce photo/UI work during list browsing.
 - Surface IndexedDB write failures instead of silently switching storage and losing saved lists.
+- Update Android CI and release SDK setup for current Google SDK packages.
 
 ## 1.2.2 - 2026-07-27
 
