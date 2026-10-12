@@ -18,13 +18,15 @@
 </div>
 
 > [!IMPORTANT]
-> Takip Atlası yalnızca Android içindir. Instagram veya Meta tarafından geliştirilmemiş, desteklenmemiş ya da onaylanmamıştır. Yalnızca kendi hesabında ve sorumluluğunda kullan.
+> Takip Atlası Android APK ve PC'de yerel tarayıcı arayüzü sunar. Instagram veya Meta tarafından geliştirilmemiş, desteklenmemiş ya da onaylanmamıştır. Yalnızca kendi hesabında ve sorumluluğunda kullan.
 
 ## İndirme
 
 En güncel imzalı APK için yukarıdaki **Tek Tıkla İndir** düğmesini kullan. Bağlantı her zaman son GitHub sürümündeki `Takip-Atlasi.apk` dosyasını indirir.
 
 Android ilk kurulumda, APK'yı açtığın uygulamaya **Bilinmeyen uygulamaları yükleme** izni vermeni isteyebilir. Yeni sürümler aynı imzayla üretildiği için APK'yı mevcut kurulumun üzerine yükleyerek verilerini koruyabilirsin.
+
+**PC'de kullanmak için:** Kaynak kodu indir, Node.js 22 kur ve proje klasöründe `npm ci` ardından `npm start` çalıştır. `http://127.0.0.1:4173` adresini tarayıcıda aç. Yerel sunucu yalnızca bu bilgisayardan erişilir; Instagram parolası istemez ve verini başka bir sunucuya yüklemez.
 
 > [!NOTE]
 > **Play Protect indirmeyi veya kurulumu bekletirse:** Takip Atlası Google Play'de yayımlanmadığı için bazı cihazlar APK'yı `İndiriliyor...` ekranında tutabilir ya da bilinmeyen uygulama uyarısı gösterebilir. Önce sunulan **Yine de yükle** seçeneğini kullan. Bu seçenek yoksa:
@@ -47,9 +49,9 @@ Android ilk kurulumda, APK'yı açtığın uygulamaya **Bilinmeyen uygulamaları
 
 ## Nasıl Çalışır?
 
-1. **Instagram'a bağlan** düğmesine bas ve veri kullanım açıklamasını onayla.
-2. Uygulama içindeki gerçek `instagram.com` ekranında girişini tamamla.
-3. Takip listeleri telefonda toplanır, karşılaştırılır ve analiz ekranı açılır.
+**PC ve Android'de güvenilir arşiv yolu:** Instagram'da **Hesaplar Merkezi → Bilgilerin ve izinlerin → Bilgilerini indir** yolundan yalnızca **Takipçiler ve takip edilenler** verisini **JSON** biçiminde iste. İndirilen ZIP'i açmadan uygulamada **Instagram ZIP / JSON arşivini seç** düğmesine bas; istersen ZIP'ten çıkardığın `followers_1.json` ve `following.json` dosyalarını birlikte seç. Kullanıcı adını profil alanına yaz. Dosya yalnızca cihazında açılır; iki liste eksikse veri kaydedilmez. Instagram arşivi güncel olmayabilir; değişim analizi yalnızca içe aktardığın kayıtların farkını gösterir.
+
+**Android'de doğrudan bağlantı:** **Instagram'a bağlan** düğmesine bas, veri kullanım açıklamasını onayla ve açılan gerçek `instagram.com` ekranında girişini tamamla. Instagram'ın resmi olmayan API'si istekleri reddederse ZIP/JSON arşivi yolunu kullan.
 
 Instagram kullanıcı adın otomatik okunamazsa başlangıç ekranındaki profil alanına yazıp tekrar dene. Uygulama adı yalnızca açık oturumun hesap kimliğiyle eşleşirse kabul eder; yeşil tik tek başına hesap doğrulaması değildir.
 Hesap sorguları Instagram tarafından reddedilirse uygulama hangi sorguda hangi HTTP yanıtını aldığını gösterir. Bu hata kodları oturum çerezlerini veya hesap kimliğini içermez.
@@ -68,23 +70,24 @@ Tam açıklama uygulamanın içindeki **Gizlilik ve veri kullanımı** bölümü
 
 ## Teknoloji
 
-`Java` · `Capacitor 7` · `Android WebView` · `IndexedDB` · `GitHub Actions`
+`Java` · `Capacitor 7` · `Android WebView` · `Node.js` · `fflate` · `IndexedDB` · `GitHub Actions`
 
 <details>
 <summary><strong>Kaynaktan derleme</strong></summary>
 
-Gereksinimler: Node.js 22, Android Studio, JDK 21 ve Android SDK.
+Android APK için gereksinimler: Node.js 22, Android Studio, JDK 21 ve Android SDK.
 
 ```powershell
 npm ci
 npm run check
 npm test
+npm run desktop:smoke
 npm run android:sync
 cd android
 .\gradlew.bat testDebugUnitTest lintDebug assembleDebug
 ```
 
-`www` bir web ürünü değildir; Capacitor tarafından APK içine gömülen Android WebView arayüzünün kaynak dizinidir.
+`www` hem PC yerel sunucusu hem de Capacitor Android WebView tarafından kullanılan ortak arayüzdür.
 
 </details>
 
@@ -103,7 +106,7 @@ powershell -ExecutionPolicy Bypass -File scripts\create-android-signing-key.ps1
 
 ## Sorumluluk
 
-Takip listesi ve herkese açık hesap bilgileri resmi olmayan Instagram uçlarından okunur. Instagram değişiklikleri özelliği geçici olarak bozabilir veya hız sınırı uygulayabilir. Kaynak kodunu ve APK'yı kullanma sorumluluğu kullanıcıya aittir.
+Android doğrudan bağlantısı takip listesi ve herkese açık hesap bilgilerini resmi olmayan Instagram uçlarından okur. Instagram değişiklikleri bu özelliği bozabilir veya hız sınırı uygulayabilir. ZIP/JSON arşiv içe aktarma bu uçlara bağlanmaz. Kaynak kodunu ve APK'yı kullanma sorumluluğu kullanıcıya aittir.
 
 <div align="center">
   <sub>Takip Atlası · Android'de yerel takip analizi</sub>

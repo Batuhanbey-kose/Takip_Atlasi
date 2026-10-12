@@ -2,6 +2,7 @@
   "use strict";
 
   const logic = window.TakipLogic;
+  const archive = window.TakipArchive;
   const storage = window.TakipStorage;
   const PAGE_SIZE = 48;
   const DATA_DISCLOSURE_KEY = "takip-atlasi-data-disclosure-v1";
@@ -138,17 +139,14 @@
   };
 
   const elements = {};
+  let pendingArchiveUsername = "";
 
   document.addEventListener("DOMContentLoaded", initialize);
 
   async function initialize() {
-    if (!isAndroidRuntime) {
-      showAndroidOnlyScreen();
-      return;
-    }
     cacheElements();
     bindEvents();
-    if (await clearLegacyWebRuntime()) {
+    if (isAndroidRuntime && await clearLegacyWebRuntime()) {
       return;
     }
     initializeTheme();
@@ -159,7 +157,7 @@
     try {
       savedState = await storage.load();
     } catch (error) {
-      showError(elements.setupError, "Yerel takip kayıtları okunamadı. Telefonundaki boş alanı kontrol edip tekrar aç.");
+      showError(elements.setupError, "Yerel takip kayıtları okunamadı. Cihazındaki boş alanı kontrol edip tekrar aç.");
       return;
     }
     if (savedState.profile && savedState.snapshots.length) {
@@ -176,17 +174,6 @@
     window.setInterval(updateRelativeTime, 60000);
   }
 
-  function showAndroidOnlyScreen() {
-    document.body.innerHTML = `
-      <main class="android-only-screen">
-        <span class="brand__mark" aria-hidden="true"><span></span><span></span></span>
-        <p>TAKİP ATLASI</p>
-        <h1>Yalnızca Android'de çalışır.</h1>
-        <span>Bu uygulamanın web veya bilgisayar sürümü yoktur.</span>
-      </main>
-    `;
-  }
-
   function cacheElements() {
     const ids = [
       "onboardingView",
@@ -198,6 +185,9 @@
       "instagramConnectButton",
       "instagramConnectTitle",
       "instagramConnectHint",
+      "archiveButton",
+      "archiveInput",
+      "archiveRefreshButton",
       "collectorPanel",
       "collectorPulse",
       "collectorTitle",
@@ -292,9 +282,16 @@
     elements.profileName.addEventListener("input", updateSetupValidity);
     elements.setupForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      requestNativeInstagramConnection();
+      if (isAndroidRuntime) {
+        requestNativeInstagramConnection();
+      } else {
+        openArchivePicker();
+      }
     });
     elements.demoButton.addEventListener("click", startDemo);
+    elements.archiveButton.addEventListener("click", () => openArchivePicker());
+    elements.archiveInput.addEventListener("change", importSelectedArchive);
+    elements.archiveRefreshButton.addEventListener("click", () => openArchivePicker(state.profile && state.profile.username));
     elements.instagramConnectButton.addEventListener("click", () => requestNativeInstagramConnection());
     elements.cancelCollectorButton.addEventListener("click", cancelInstagramConnection);
 
@@ -437,6 +434,11 @@
   }
 
   function updateInstagramConnectButton() {
+    elements.instagramConnectButton.hidden = !isAndroidRuntime;
+    elements.refreshButton.hidden = !isAndroidRuntime;
+    if (!isAndroidRuntime) {
+      return;
+    }
     elements.instagramConnectButton.disabled = !nativeCollector.available || collectorState.busy;
     if (collectorState.busy) {
       elements.instagramConnectTitle.textContent = "Instagram taraması sürüyor";
@@ -741,6 +743,52 @@
     state.snapshots = snapshots.filter((entry) => entry.username === username);
   }
 
+  function openArchivePicker(username = getValidProfileName()) {
+    const validUsername = logic.normalizeUsername(username);
+    if (!validUsername || validUsername.length > 30) {
+      showError(elements.setupError, "Arşiv için önce Instagram kullanıcı adını yaz.");
+      return;
+    }
+    pendingArchiveUsername = validUsername;
+    elements.archiveInput.click();
+  }
+
+  async function importSelectedArchive(event) {
+    const files = Array.from(event.target.files || []);
+    const username = pendingArchiveUsername;
+    pendingArchiveUsername = "";
+    if (!files.length || !username) {
+      return;
+    }
+    elements.archiveButton.disabled = true;
+    hideError(elements.setupError);
+    showLoading("Instagram arşivi okunuyor", "İki takip listesi cihazında doğrulanıyor...");
+    try {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      const dataset = await archive.importFiles(files);
+      await saveAnalysisDataset(username, dataset);
+      state.category = "overview";
+      state.search = "";
+      state.sort = "recent";
+      elements.searchInput.value = "";
+      elements.profileName.value = username;
+      showDashboard();
+      elements.collectorPanel.hidden = true;
+      showToast(`${formatNumber(dataset.followers.length)} takipçi ve ${formatNumber(dataset.following.length)} takip edilen arşivden okundu.`, "✓");
+    } catch (error) {
+      const message = error && error.message ? error.message : "Instagram arşivi okunamadı.";
+      if (elements.onboardingView.hidden) {
+        showToast(message, "!");
+      } else {
+        showError(elements.setupError, message);
+      }
+    } finally {
+      event.target.value = "";
+      elements.archiveButton.disabled = false;
+      hideLoading();
+    }
+  }
+
   async function startDemo() {
     showLoading("Örnek harita kuruluyor", "Renkler ve kategoriler hazırlanıyor...");
     const demo = logic.createDemoData(getValidProfileName());
@@ -783,6 +831,7 @@
     state.analysis = logic.analyzeDataset(state.currentSnapshot, state.previousSnapshot);
     elements.onboardingView.hidden = true;
     elements.dashboardView.hidden = false;
+    elements.archiveRefreshButton.hidden = Boolean(state.profile.isDemo);
     document.body.classList.add("has-dashboard");
     renderDashboard();
     switchCategory(state.category, false);

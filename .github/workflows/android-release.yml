@@ -27,6 +27,9 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - run: npm run desktop:smoke
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
       - run: npm run android:sync
       - run: chmod +x android/gradlew
       - name: Restore release signing key

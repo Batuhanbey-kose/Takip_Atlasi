@@ -667,6 +667,24 @@ select:focus-visible,
   font-size: 16px;
 }
 
+.archive-button {
+  width: 100%;
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid rgba(77, 206, 202, 0.55);
+  border-radius: 14px;
+  background: rgba(77, 206, 202, 0.12);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.archive-button:hover { background: rgba(77, 206, 202, 0.22); }
+.archive-button:disabled { opacity: 0.6; cursor: wait; }
+.archive-hint { margin: 10px 0 18px; color: rgba(255, 255, 255, 0.62); font-size: 11px; line-height: 1.5; }
+.archive-hint code { color: var(--cyan); }
+
 .collector-panel {
   margin-top: 11px;
   padding: 13px;

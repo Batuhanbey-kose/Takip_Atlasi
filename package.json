@@ -1,20 +1,30 @@
 {
   "name": "takip-atlasi",
-  "version": "1.2.5",
+  "version": "1.3.0",
   "private": true,
-  "description": "Android için yerel Instagram takip analizi",
+  "description": "PC ve Android için yerel Instagram takip analizi",
   "scripts": {
-    "test": "node --test tests/logic.test.js",
-    "check": "node --check www/logic.js && node --check www/storage.js && node --check www/app.js && node --check www/sw.js && node --check android/app/src/main/assets/instagram-collector.js",
+    "web:deps": "node scripts/sync-web-deps.js",
+    "pretest": "npm run web:deps",
+    "test": "node --test tests/logic.test.js tests/archive.test.js",
+    "precheck": "npm run web:deps",
+    "check": "node --check www/logic.js && node --check www/archive.js && node --check www/storage.js && node --check www/app.js && node --check www/sw.js && node --check scripts/serve.js && node --check scripts/smoke-desktop.js && node --check android/app/src/main/assets/instagram-collector.js",
+    "prestart": "npm run web:deps",
+    "start": "node scripts/serve.js",
+    "predesktop:smoke": "npm run web:deps",
+    "desktop:smoke": "node scripts/smoke-desktop.js",
+    "preandroid:sync": "npm run web:deps",
     "android:add": "cap add android",
     "android:sync": "cap sync android",
     "android:open": "cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.0",
-    "@capacitor/core": "^7.4.0"
+    "@capacitor/core": "^7.4.0",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.4.0"
+    "@capacitor/cli": "^7.4.0",
+    "playwright-core": "^1.64.0"
   }
 }

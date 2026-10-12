@@ -125,17 +125,17 @@ test("Android yapılandırma dosyaları geçerli JSON içerir", () => {
   files.forEach((file) => assert.doesNotThrow(() => JSON.parse(fs.readFileSync(file, "utf8"))));
 });
 
-test("ürün yalnızca Android çalışma zamanını kabul eder", () => {
+test("PC arşiv analizi ve Android yerel toplayıcı ayrı çalışma yollarına sahiptir", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "../www/app.js"), "utf8");
   const html = fs.readFileSync(path.join(__dirname, "../www/index.html"), "utf8");
   const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "../package.json"), "utf8"));
 
   assert.match(appSource, /getPlatform\?\.\(\) === "android"/);
-  assert.match(appSource, /Bu uygulamanın web veya bilgisayar sürümü yoktur/);
+  assert.match(appSource, /archive\.importFiles\(files\)/);
   assert.doesNotMatch(appSource, /\/api\/(?:health|extension|instagram|profile|follower)/);
-  assert.doesNotMatch(html, /manifest\.webmanifest|type="file"|BASLAT|Chrome köprüsü/);
-  assert.equal(packageJson.scripts.start, undefined);
-  assert.equal(packageJson.scripts.web, undefined);
+  assert.match(html, /id="archiveInput" type="file"/);
+  assert.doesNotMatch(html, /manifest\.webmanifest|Chrome köprüsü/);
+  assert.equal(packageJson.scripts.start, "node scripts/serve.js");
 });
 
 test("sayaç sıralaması listedeki bütün hesapları paralel işler", () => {

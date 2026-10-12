@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 - 2026-10-12
+
+- Add a PC localhost interface and the same offline Instagram JSON/ZIP archive import to both PC and Android.
+- Validate both relationship lists, reject incomplete/oversized archives and reuse the existing local analysis and history.
+- Keep the Android direct connection available while providing an archive path when Instagram returns 400/429.
+
 ## 1.2.5 - 2026-10-12
 
 - Read the signed-in account ID from Android's Instagram cookie store when it is hidden from page JavaScript.
