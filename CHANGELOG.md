@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.3 - 2026-10-12
+
+- Verify missing Instagram profile counts through the matching web profile before collecting lists.
+- Request up to 100 accounts per page, shorten inter-page delays and avoid repeatedly copying completed Android results.
+- Wait for login navigation to settle before starting collection.
+- Stop metadata batches when Instagram asks for a pause and reduce photo/UI work during list browsing.
+- Surface IndexedDB write failures instead of silently switching storage and losing saved lists.
+
 ## 1.2.2 - 2026-07-27
 
 - Fetch all counters required by global sorting and filtering with four controlled workers.

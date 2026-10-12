@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -44,7 +45,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
@@ -59,6 +59,7 @@ public class InstagramCollectorPlugin extends Plugin {
     private static final int LOGIN_TIMEOUT_MS = 20 * 60 * 1000;
     private static final int COLLECTION_IDLE_TIMEOUT_MS = 90 * 1000;
     private static final int RESULT_CHUNK_LIMIT = 250;
+    private static final int MAX_PAGE_USERS = 100;
     private static final int MAX_RECORDS_PER_RELATIONSHIP = 15000;
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-z0-9._]{1,30}$");
     private static final Pattern USER_ID_PATTERN = Pattern.compile("^\\d{1,30}$");
@@ -67,6 +68,8 @@ public class InstagramCollectorPlugin extends Plugin {
     private final Object resultLock = new Object();
     private final LinkedHashMap<String, JSObject> followers = new LinkedHashMap<>();
     private final LinkedHashMap<String, JSObject> following = new LinkedHashMap<>();
+    private List<JSObject> followerResults = Collections.emptyList();
+    private List<JSObject> followingResults = Collections.emptyList();
     private ExecutorService accountExecutor;
     private InstagramAccountRepository accountRepository;
 
@@ -79,6 +82,8 @@ public class InstagramCollectorPlugin extends Plugin {
     private Runnable loginTimeout;
     private Runnable collectionWatchdog;
     private boolean collectorStarted;
+    private boolean collectorPageLoading;
+    private long pageFinishedAt;
     private boolean cancelled;
     private String requestedUsername = "";
     private String accountUsername = "";
@@ -107,16 +112,14 @@ public class InstagramCollectorPlugin extends Plugin {
         List<JSObject> records;
 
         synchronized (resultLock) {
-            Map<String, JSObject> source;
             if ("followers".equals(relationship)) {
-                source = followers;
+                records = followerResults;
             } else if ("following".equals(relationship)) {
-                source = following;
+                records = followingResults;
             } else {
                 call.reject("Geçersiz ilişki türü.");
                 return;
             }
-            records = new ArrayList<>(source.values());
         }
 
         int end = Math.min(records.size(), offset + limit);
@@ -143,6 +146,8 @@ public class InstagramCollectorPlugin extends Plugin {
             synchronized (resultLock) {
                 followers.clear();
                 following.clear();
+                followerResults = Collections.emptyList();
+                followingResults = Collections.emptyList();
             }
             call.resolve();
         });
@@ -250,10 +255,14 @@ public class InstagramCollectorPlugin extends Plugin {
         accountUserId = "";
         accountProfilePicUrl = "";
         collectorStarted = false;
+        collectorPageLoading = true;
+        pageFinishedAt = 0;
         cancelled = false;
         synchronized (resultLock) {
             followers.clear();
             following.clear();
+            followerResults = Collections.emptyList();
+            followingResults = Collections.emptyList();
         }
 
         try {
@@ -359,12 +368,15 @@ public class InstagramCollectorPlugin extends Plugin {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                collectorPageLoading = false;
+                pageFinishedAt = SystemClock.uptimeMillis();
                 maybeStartCollector();
             }
 
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                collectorPageLoading = true;
                 if (collectorStarted) {
                     finishWithError(getContext().getString(R.string.collector_navigation_error));
                 }
@@ -450,7 +462,8 @@ public class InstagramCollectorPlugin extends Plugin {
     }
 
     private void maybeStartCollector() {
-        if (activeCall == null || collectorStarted || collectorWebView == null) {
+        if (activeCall == null || collectorStarted || collectorWebView == null ||
+            collectorPageLoading || SystemClock.uptimeMillis() - pageFinishedAt < 700) {
             return;
         }
         String currentUrl = collectorWebView.getUrl();
@@ -517,7 +530,7 @@ public class InstagramCollectorPlugin extends Plugin {
     private void handlePageMessage(JSObject message) {
         String relationship = message.getString("relationship", "");
         JSONArray users = message.optJSONArray("users");
-        if (users == null || users.length() > 50) {
+        if (users == null || users.length() > MAX_PAGE_USERS) {
             finishWithError(getContext().getString(R.string.collector_invalid_response));
             return;
         }
@@ -571,6 +584,8 @@ public class InstagramCollectorPlugin extends Plugin {
         synchronized (resultLock) {
             followersCount = followers.size();
             followingCount = following.size();
+            followerResults = new ArrayList<>(followers.values());
+            followingResults = new ArrayList<>(following.values());
         }
 
         notifyProgress(
@@ -661,6 +676,7 @@ public class InstagramCollectorPlugin extends Plugin {
         collectorStatus = null;
         collectorProgress = null;
         collectorStarted = false;
+        collectorPageLoading = false;
         if (webView != null) {
             webView.stopLoading();
             webView.loadUrl("about:blank");

@@ -228,6 +228,118 @@ test("Android yerel Instagram toplayıcısı sayfalı listeleri telefonda birle�
   assert.equal(messages.filter((message) => message.type === "page").length, 3);
   assert.ok(requests.some((request) => request.includes("/friendships/999/followers/")));
   assert.ok(requests.some((request) => request.includes("max_id=cursor-2")));
+  assert.ok(requests.every((request) => !request.includes("/users/999/info/")));
+  assert.ok(requests.some((request) => request.includes("count=100")));
+});
+
+test("Android toplayıcı eksik sayaçları doğrulanmış web profilinden tamamlar ve 100 kişilik sayfaları okur", async () => {
+  const requests = [];
+  const response = (payload, status = 200) => ({
+    ok: status === 200,
+    status,
+    json: async () => payload,
+  });
+  const result = await runAndroidCollector(async (pathname) => {
+    requests.push(pathname);
+    if (pathname.startsWith("/api/v1/accounts/current_user/")) {
+      return response({ user: { pk: "999", username: "owner" } });
+    }
+    if (pathname.includes("/users/999/info/")) {
+      return response({}, 403);
+    }
+    if (pathname.includes("/users/web_profile_info/")) {
+      return response({ data: { user: { id: "999", username: "owner", edge_followed_by: { count: 101 }, edge_follow: { count: 0 } } } });
+    }
+    if (pathname.includes("/followers/")) {
+      return pathname.includes("max_id=next")
+        ? response({ users: [{ username: "final.person" }] })
+        : response({ users: Array.from({ length: 100 }, (_, index) => ({ username: `person.${index}` })), next_max_id: "next" });
+    }
+    return response({ users: [] });
+  });
+
+  assert.equal(result.type, "complete");
+  assert.equal(result.followersCount, 101);
+  assert.equal(result.followingCount, 0);
+  assert.ok(requests.some((request) => request.includes("count=100")));
+  assert.ok(requests.some((request) => request.includes("max_id=next")));
+});
+
+test("Android toplayıcı başka hesaba ait web sayaçlarını kabul etmez", async () => {
+  const response = (payload) => ({ ok: true, status: 200, json: async () => payload });
+  const result = await runAndroidCollector(async (pathname) => {
+    if (pathname.startsWith("/api/v1/accounts/current_user/")) {
+      return response({ user: { pk: "999", username: "owner" } });
+    }
+    if (pathname.includes("/users/web_profile_info/")) {
+      return response({ data: { user: { id: "123", username: "owner", follower_count: 0, following_count: 0 } } });
+    }
+    return response({});
+  });
+
+  assert.equal(result.type, "error");
+  assert.match(result.message, /liste toplamlarını doğrulayamadı/);
+});
+
+test("Android toplayıcı has_more işaretli son sayfayı tamamlanmış saymaz", async () => {
+  const response = (payload) => ({ ok: true, status: 200, json: async () => payload });
+  const result = await runAndroidCollector(async (pathname) => {
+    if (pathname.startsWith("/api/v1/accounts/current_user/")) {
+      return response({ user: { pk: "999", username: "owner", follower_count: 1, following_count: 0 } });
+    }
+    return response({ users: [{ username: "alpha" }], has_more: true });
+  });
+
+  assert.equal(result.type, "error");
+  assert.match(result.message, /sayfalarını tamamlamadı/);
+});
+
+test("IndexedDB kayıt hatası sessizce farklı bir depoya geçip listeyi kaybettirmez", async () => {
+  const script = fs.readFileSync(path.join(__dirname, "../www/storage.js"), "utf8");
+  let failWrite = true;
+  let fallbackWrites = 0;
+  let savedProfile = null;
+  const database = {
+    transaction: () => {
+      const transaction = {
+        objectStore: () => ({
+          put: (entry) => {
+            setImmediate(() => {
+              if (failWrite) {
+                transaction.error = new Error("storage full");
+                transaction.onabort();
+              } else {
+                savedProfile = entry.value;
+                transaction.oncomplete();
+              }
+            });
+          },
+        }),
+      };
+      return transaction;
+    },
+  };
+  const sandbox = {
+    indexedDB: {
+      open: () => {
+        const request = { result: database };
+        setImmediate(() => request.onsuccess());
+        return request;
+      },
+    },
+    localStorage: { setItem: () => { fallbackWrites += 1; } },
+  };
+  vm.runInNewContext(script, sandbox, { filename: "storage.js" });
+
+  failWrite = false;
+  await sandbox.TakipStorage.saveProfile({ username: "owner" });
+  failWrite = true;
+  await assert.rejects(sandbox.TakipStorage.addSnapshot({ id: "first", username: "owner" }), /storage full/);
+  await assert.rejects(sandbox.TakipStorage.saveProfile({ username: "owner" }), /storage full/);
+  failWrite = false;
+  await sandbox.TakipStorage.saveProfile({ username: "owner" });
+  assert.equal(savedProfile.username, "owner");
+  assert.equal(fallbackWrites, 0);
 });
 
 test("Android toplayıcı biçimi değişmiş listeyi eksik veri olarak kaydetmez", async () => {
@@ -368,6 +480,7 @@ test("Android toplayıcı eklentisi uygulamaya kayıtlı ve Instagram kökenine 
   assert.match(mainActivity, /registerPlugin\(InstagramCollectorPlugin\.class\)/);
   assert.match(plugin, /@CapacitorPlugin\(name = "InstagramCollector"\)/);
   assert.match(plugin, /Collections\.singleton\("https:\/\/www\.instagram\.com"\)/);
+  assert.match(plugin, /MAX_PAGE_USERS = 100/);
   assert.doesNotMatch(plugin, /addJavascriptInterface/);
   assert.equal(capacitorConfig.android.minWebViewVersion, 86);
 });

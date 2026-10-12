@@ -41,7 +41,7 @@
   }
 
   function randomPause() {
-    return pause(1100 + Math.floor(Math.random() * 900));
+    return pause(500 + Math.floor(Math.random() * 350));
   }
 
   function ensureActive() {
@@ -171,14 +171,19 @@
     const initialUserId = normalizeUserId(
       (user && (user.pk || user.pk_id || user.id)) || cookieUserId,
     );
-    if (initialUserId) {
+    // The current-user endpoint already includes counts on some Instagram versions.
+    // Avoid a second request unless the account identity or totals are missing.
+    if (initialUserId && (!normalizeUsername(user && user.username) ||
+      profileCount(user, "follower_count", "edge_followed_by") === null ||
+      profileCount(user, "following_count", "edge_follow") === null)) {
       try {
         const payload = await instagramRequest(
           `/api/v1/users/${encodeURIComponent(initialUserId)}/info/`,
           0,
         );
         const detailedUser = payload.user || payload;
-        if (detailedUser && normalizeUsername(detailedUser.username)) {
+        if (detailedUser && normalizeUserId(detailedUser.pk || detailedUser.pk_id || detailedUser.id) === initialUserId &&
+          normalizeUsername(detailedUser.username)) {
           user = { ...(user || {}), ...detailedUser };
         }
       } catch (error) {
@@ -186,9 +191,7 @@
       }
     }
 
-    const userId = normalizeUserId(
-      (user && (user.pk || user.pk_id || user.id)) || cookieUserId,
-    );
+    let userId = normalizeUserId((user && (user.pk || user.pk_id || user.id)) || cookieUserId);
     const username = normalizeUsername(user && user.username);
     if (!userId) {
       throw new Error("Instagram hesap kimliği okunamadı. Oturumu kapatıp yeniden giriş yap.");
@@ -197,14 +200,28 @@
       throw new Error("Instagram kullanıcı adı okunamadı.");
     }
 
-    const followerCount = normalizeCount(
-      user && (user.follower_count ?? user.edge_followed_by?.count),
-    );
-    const followingCount = normalizeCount(
-      user && (user.following_count ?? user.edge_follow?.count),
-    );
+    let followerCount = profileCount(user, "follower_count", "edge_followed_by");
+    let followingCount = profileCount(user, "following_count", "edge_follow");
     if (followerCount === null || followingCount === null) {
-      throw new Error("Instagram liste toplamlarını doğrulayamadı; eksik veri kaydedilmedi.");
+      try {
+        const payload = await instagramRequest(
+          `/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`,
+          0,
+        );
+        const webUser = payload.data?.user || payload.graphql?.user || payload.user;
+        const webUserId = normalizeUserId(webUser && (webUser.pk || webUser.pk_id || webUser.id));
+        if (webUser && normalizeUsername(webUser.username) === username &&
+          (!webUserId || webUserId === userId)) {
+          followerCount ??= profileCount(webUser, "follower_count", "edge_followed_by");
+          followingCount ??= profileCount(webUser, "following_count", "edge_follow");
+          user = { ...webUser, ...user };
+        }
+      } catch (error) {
+        // Never use guessed totals: a truncated relationship list must not be saved.
+      }
+    }
+    if (followerCount === null || followingCount === null) {
+      throw new Error("Instagram liste toplamlarını doğrulayamadı. Bir süre sonra yeniden giriş yapıp dene; eksik veri kaydedilmedi.");
     }
 
     return {
@@ -219,6 +236,10 @@
       followerCount,
       followingCount,
     };
+  }
+
+  function profileCount(user, directKey, edgeKey) {
+    return normalizeCount(user && (user[directKey] ?? user[edgeKey]?.count));
   }
 
   function pageUsers(payload) {
@@ -290,7 +311,7 @@
     for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber += 1) {
       ensureActive();
       const query = new URLSearchParams({
-        count: "50",
+        count: "100",
         search_surface: "follow_list_page",
       });
       if (pageId) {
@@ -319,6 +340,9 @@
 
       const nextId = nextPageId(payload);
       if (!nextId) {
+        if (payload.has_more === true) {
+          throw new Error("Instagram liste sayfalarını tamamlamadı; eksik veri kaydedilmedi.");
+        }
         const missingCount = Math.max(0, expectedTotal - usernames.size);
         if (missingCount > allowedCountDrift(expectedTotal)) {
           throw new Error(

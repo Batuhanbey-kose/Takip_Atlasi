@@ -26,6 +26,9 @@
     year: "numeric",
   });
   const relativeFormatter = new Intl.RelativeTimeFormat("tr-TR", { numeric: "auto" });
+  const clockFormatter = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  const compactFormatter = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
+  const countFormatter = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 });
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const isAndroidRuntime = Boolean(
     window.Capacitor &&
@@ -131,6 +134,7 @@
     nativePendingMetadataStatusPeople: [],
     nativeEnrichmentSnapshotId: "",
     nativeEnrichmentNotice: "",
+    nativeMetadataRetryAt: 0,
   };
 
   const elements = {};
@@ -151,7 +155,13 @@
     updateSetupValidity();
     await initializeNativeCollector();
 
-    const savedState = await storage.load();
+    let savedState;
+    try {
+      savedState = await storage.load();
+    } catch (error) {
+      showError(elements.setupError, "Yerel takip kayıtları okunamadı. Telefonundaki boş alanı kontrol edip tekrar aç.");
+      return;
+    }
     if (savedState.profile && savedState.snapshots.length) {
       state.profile = savedState.profile;
       state.snapshots = savedState.snapshots.filter(
@@ -765,7 +775,9 @@
       state.nativePendingMetadataPeople = [];
       state.accountMetadata.clear();
       state.nativeEnrichmentNotice = "";
+      state.nativeMetadataRetryAt = 0;
       window.clearTimeout(state.metadataPollTimer);
+      window.clearTimeout(state.metadataSaveTimer);
     }
 
     state.analysis = logic.analyzeDataset(state.currentSnapshot, state.previousSnapshot);
@@ -1281,7 +1293,7 @@
           !state.nativeProfilePhotos.has(person.username) &&
           !state.nativePhotoAttempts.has(person.username);
       })
-      .slice(0, 48);
+      .slice(0, 12);
     if (!candidates.length) {
       return;
     }
@@ -1309,7 +1321,12 @@
           state.nativeProfilePhotos.set(username, localUrl);
         }
       });
-      renderDashboard();
+      elements.profileAvatar.innerHTML = avatarContentMarkup(
+        state.profile.username,
+        state.profile.profilePicUrl,
+        false,
+      );
+      renderAttentionPeople();
       if (state.category !== "overview") {
         renderList(true);
       }
@@ -1352,10 +1369,14 @@
     ) {
       return;
     }
+    if (Date.now() < state.nativeMetadataRetryAt) {
+      updateListDetailStatus(statusPeople);
+      return;
+    }
 
     const candidates = people
       .filter((person) => !hasCompleteDetails(person) && !state.nativeMetadataAttempts.has(person.username))
-      .slice(0, 8);
+      .slice(0, 24);
     if (!candidates.length) {
       updateListDetailStatus(statusPeople);
       return;
@@ -1386,10 +1407,19 @@
       applyAccountMetadata(verified);
       if (result && result.sessionRequired) {
         state.nativeEnrichmentNotice = "Bilgiler için Instagram oturumunu yenile";
+        state.nativeMetadataRetryAt = Infinity;
       } else if (Number(result && result.retryAfterMs) > 0) {
         state.nativeEnrichmentNotice = "Instagram kısa bir mola istedi";
+        state.nativeMetadataRetryAt = Date.now() + Number(result.retryAfterMs);
       } else {
         state.nativeEnrichmentNotice = "";
+      }
+      if (state.nativeMetadataRetryAt > Date.now()) {
+        candidates.forEach((person) => {
+          if (!hasCompleteDetails(person)) {
+            state.nativeMetadataAttempts.delete(person.username);
+          }
+        });
       }
     } catch (error) {
       // Existing values stay visible when metadata is temporarily unavailable.
@@ -1403,6 +1433,9 @@
       const pendingStatusPeople = state.nativePendingMetadataStatusPeople;
       state.nativePendingMetadataPeople = [];
       state.nativePendingMetadataStatusPeople = [];
+      if (Date.now() < state.nativeMetadataRetryAt) {
+        return;
+      }
       if (pendingPeople.length) {
         state.metadataPollTimer = window.setTimeout(
           () => requestNativeMetadata(pendingPeople, pendingStatusPeople),
@@ -1455,7 +1488,8 @@
     const metadataPending = people.some(
       (person) => !hasCompleteDetails(person) && !state.nativeMetadataAttempts.has(person.username),
     );
-    const loading = state.metadataRequestInProgress || metadataPending;
+    const loading = state.metadataRequestInProgress ||
+      (metadataPending && Date.now() >= state.nativeMetadataRetryAt && nativeCollector.available);
     elements.listDetailStatus.classList.toggle("is-loading", loading);
     elements.listDetailStatus.hidden = complete && !state.nativeEnrichmentNotice;
     elements.listDetailStatus.textContent = state.nativeEnrichmentNotice || (loading
@@ -1661,6 +1695,7 @@
       state.nativePendingMetadataStatusPeople = [];
       state.nativeEnrichmentSnapshotId = "";
       state.nativeEnrichmentNotice = "";
+      state.nativeMetadataRetryAt = 0;
       window.clearTimeout(state.metadataPollTimer);
       window.clearTimeout(state.metadataSaveTimer);
       try {
@@ -1822,20 +1857,14 @@
   }
 
   function formatClock(timestamp) {
-    return new Intl.DateTimeFormat("tr-TR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(timestamp);
+    return clockFormatter.format(timestamp);
   }
 
   function formatCompactNumber(value) {
     if (!Number.isFinite(value)) {
       return "…";
     }
-    return new Intl.NumberFormat("tr-TR", {
-      notation: value >= 10000 ? "compact" : "standard",
-      maximumFractionDigits: 1,
-    }).format(value);
+    return (value >= 10000 ? compactFormatter : countFormatter).format(value);
   }
 
   function formatSigned(number) {

@@ -90,24 +90,24 @@
       return { profile: state.profile || null, snapshots: sortSnapshots(state.snapshots || []) };
     }
 
+    let database;
     try {
-      const database = await openDatabase();
-      const transaction = database.transaction(["meta", "snapshots"], "readonly");
-      const profileRequest = transaction.objectStore("meta").get("profile");
-      const snapshotsRequest = transaction.objectStore("snapshots").getAll();
-      const [profileEntry, snapshots] = await Promise.all([
-        requestResult(profileRequest),
-        requestResult(snapshotsRequest),
-      ]);
-
-      return {
-        profile: profileEntry ? profileEntry.value : null,
-        snapshots: sortSnapshots(snapshots || []),
-      };
+      database = await openDatabase();
     } catch (error) {
-      useFallback = true;
       return load();
     }
+    const transaction = database.transaction(["meta", "snapshots"], "readonly");
+    const profileRequest = transaction.objectStore("meta").get("profile");
+    const snapshotsRequest = transaction.objectStore("snapshots").getAll();
+    const [profileEntry, snapshots] = await Promise.all([
+      requestResult(profileRequest),
+      requestResult(snapshotsRequest),
+    ]);
+
+    return {
+      profile: profileEntry ? profileEntry.value : null,
+      snapshots: sortSnapshots(snapshots || []),
+    };
   }
 
   async function saveProfile(profile) {
@@ -118,15 +118,15 @@
       return;
     }
 
+    let database;
     try {
-      const database = await openDatabase();
-      const transaction = database.transaction("meta", "readwrite");
-      transaction.objectStore("meta").put({ key: "profile", value: profile });
-      await transactionDone(transaction);
+      database = await openDatabase();
     } catch (error) {
-      useFallback = true;
-      await saveProfile(profile);
+      return saveProfile(profile);
     }
+    const transaction = database.transaction("meta", "readwrite");
+    transaction.objectStore("meta").put({ key: "profile", value: profile });
+    await transactionDone(transaction);
   }
 
   async function addSnapshot(snapshot) {
@@ -139,31 +139,31 @@
       return state.snapshots;
     }
 
+    let database;
     try {
-      const database = await openDatabase();
-      let transaction = database.transaction("snapshots", "readwrite");
-      transaction.objectStore("snapshots").put(snapshot);
-      await transactionDone(transaction);
-
-      const allSnapshots = sortSnapshots(
-        await requestResult(
-          database.transaction("snapshots", "readonly").objectStore("snapshots").getAll(),
-        ),
-      );
-
-      if (allSnapshots.length > MAX_SNAPSHOTS) {
-        transaction = database.transaction("snapshots", "readwrite");
-        allSnapshots.slice(MAX_SNAPSHOTS).forEach((entry) => {
-          transaction.objectStore("snapshots").delete(entry.id);
-        });
-        await transactionDone(transaction);
-      }
-
-      return allSnapshots.slice(0, MAX_SNAPSHOTS);
+      database = await openDatabase();
     } catch (error) {
-      useFallback = true;
       return addSnapshot(snapshot);
     }
+    let transaction = database.transaction("snapshots", "readwrite");
+    transaction.objectStore("snapshots").put(snapshot);
+    await transactionDone(transaction);
+
+    const allSnapshots = sortSnapshots(
+      await requestResult(
+        database.transaction("snapshots", "readonly").objectStore("snapshots").getAll(),
+      ),
+    );
+
+    if (allSnapshots.length > MAX_SNAPSHOTS) {
+      transaction = database.transaction("snapshots", "readwrite");
+      allSnapshots.slice(MAX_SNAPSHOTS).forEach((entry) => {
+        transaction.objectStore("snapshots").delete(entry.id);
+      });
+      await transactionDone(transaction);
+    }
+
+    return allSnapshots.slice(0, MAX_SNAPSHOTS);
   }
 
   async function clear() {
@@ -176,16 +176,16 @@
       return;
     }
 
+    let database;
     try {
-      const database = await openDatabase();
-      const transaction = database.transaction(["meta", "snapshots"], "readwrite");
-      transaction.objectStore("meta").clear();
-      transaction.objectStore("snapshots").clear();
-      await transactionDone(transaction);
+      database = await openDatabase();
     } catch (error) {
-      useFallback = true;
-      await clear();
+      return;
     }
+    const transaction = database.transaction(["meta", "snapshots"], "readwrite");
+    transaction.objectStore("meta").clear();
+    transaction.objectStore("snapshots").clear();
+    await transactionDone(transaction);
   }
 
   return { load, saveProfile, addSnapshot, clear };
