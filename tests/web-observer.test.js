@@ -9,25 +9,30 @@ function observer(fetchImpl) {
   let time = Date.now();
   class Clock extends Date { static now() { time += 200; return time; } }
   class Xhr { open() {} setRequestHeader() {} send() {} addEventListener() {} }
-  const sandbox = { Headers, Request, URL, URLSearchParams, AbortController, XMLHttpRequest: Xhr,
+  class BrowserRequest {
+    constructor(url, options = {}) { this.url = url; this.headers = new Headers(options.headers); this.body = options.body || ""; }
+    clone() { return new BrowserRequest(this.url, { headers: this.headers, body: this.body }); }
+    async text() { return this.body; }
+  }
+  const sandbox = { Headers, Request: BrowserRequest, URL, URLSearchParams, AbortController, XMLHttpRequest: Xhr,
     location: { href: "https://www.instagram.com/owner/" }, Date: Clock,
-    setTimeout: (callback, milliseconds) => milliseconds === 100 ? setImmediate(callback) : setTimeout(callback, milliseconds),
-    clearTimeout: (handle) => { clearImmediate(handle); clearTimeout(handle); },
+    setTimeout,
+    clearTimeout,
   };
   sandbox.window = { fetch: fetchImpl, TakipAtlasiNative: { postMessage: (value) => messages.push(JSON.parse(value)) } };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../android/app/src/main/assets/instagram-web-observer.js"), "utf8"), sandbox);
-  return { window: sandbox.window, messages };
+  return { window: sandbox.window, messages, Request: BrowserRequest };
 }
 
 test("Android web gözlemcisi doğru profil ve sorgu şablonunu normal web yanıtından hazırlar", async () => {
   const profile = (id, username) => ({ data: { user: { id, username, follower_count: 80, following_count: 538, media_count: 5, profile_pic_url: "https://scontent.cdninstagram.com/a.jpg" } } });
   const state = observer(async (input, options = {}) => {
-    const body = options.body || await input.clone().text();
+    const body = options.body || await input.text();
     const vars = JSON.parse(new URLSearchParams(body).get("variables"));
     const payload = vars.id === "999" ? profile("999", "owner") : profile("123", "alpha");
     return { status: 200, type: "basic", headers: new Headers(), json: async () => payload, clone: () => ({ json: async () => payload }) };
   });
-  await state.window.fetch(new Request("https://www.instagram.com/api/graphql", {
+  await state.window.fetch(new state.Request("https://www.instagram.com/api/graphql", {
     method: "POST",
     headers: { "x-asbd-id": "129477", "x-fb-friendly-name": "PolarisProfilePageContentQuery", "x-fb-lsd": "private-test-token" },
     body: new URLSearchParams({ variables: JSON.stringify({ id: "999" }), doc_id: "document" }).toString(),
