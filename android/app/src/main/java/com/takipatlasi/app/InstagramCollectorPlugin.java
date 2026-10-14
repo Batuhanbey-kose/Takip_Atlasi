@@ -76,16 +76,25 @@ public class InstagramCollectorPlugin extends Plugin {
     private PluginCall activeCall;
     private Dialog collectorDialog;
     private WebView collectorWebView;
+    private WebView sessionWebView;
+    private JSObject preparedWebAccount;
+    private boolean preparingWebProfile;
+    private PluginCall metadataCall;
+    private int metadataRequestId;
+    private Runnable metadataTimeout;
     private TextView collectorStatus;
+    private TextView collectorStartButton;
     private ProgressBar collectorProgress;
     private Runnable loginPoll;
     private Runnable loginTimeout;
     private Runnable collectionWatchdog;
     private boolean collectorStarted;
     private boolean collectorPageLoading;
+    private boolean loginReady;
     private long pageFinishedAt;
     private boolean cancelled;
     private String requestedUsername = "";
+    private String scanTempo = "slow";
     private String accountUsername = "";
     private String accountUserId = "";
     private String accountProfilePicUrl = "";
@@ -99,7 +108,27 @@ public class InstagramCollectorPlugin extends Plugin {
     @PluginMethod
     public void collect(PluginCall call) {
         String username = normalizeUsername(call.getString("username", ""));
-        mainHandler.post(() -> startCollection(call, username));
+        String requestedTempo = call.getString("tempo", "slow");
+        String tempo = "original".equals(requestedTempo) || "steady".equals(requestedTempo) ? requestedTempo : "slow";
+        mainHandler.post(() -> startCollection(call, username, tempo));
+    }
+
+    @PluginMethod
+    public void getConnectionStatus(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("blockedUntil", InstagramRequestGate.blockedUntil(getContext()));
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void cancelEnrichment(PluginCall call) {
+        if (accountRepository != null) {
+            accountRepository.cancelRequests();
+        }
+        mainHandler.post(() -> {
+            cancelWebMetadata();
+            call.resolve();
+        });
     }
 
     @PluginMethod
@@ -163,19 +192,41 @@ public class InstagramCollectorPlugin extends Plugin {
 
     @PluginMethod
     public void requestMetadata(PluginCall call) {
-        JSArray records = call.getArray("records", new JSArray());
-        ExecutorService executor = accountExecutor;
-        InstagramAccountRepository repository = accountRepository;
-        if (executor == null || repository == null || executor.isShutdown()) {
-            call.reject("Hesap bilgisi servisi hazır değil.");
-            return;
-        }
-        executor.execute(() -> {
-            try {
-                call.resolve(repository.requestMetadata(records));
-            } catch (Exception error) {
-                call.reject("Hesap bilgileri alınamadı.");
+        mainHandler.post(() -> {
+            if (sessionWebView == null) {
+                JSObject result = new JSObject();
+                result.put("records", new JSArray());
+                result.put("sessionRequired", true);
+                call.resolve(result);
+                return;
             }
+            if (metadataCall != null || activeCall != null) {
+                call.reject("Başka bir profil isteği veya tarama sürüyor.");
+                return;
+            }
+            JSArray source = call.getArray("records", new JSArray());
+            JSArray records = new JSArray();
+            for (int index = 0; index < Math.min(4, source.length()); index += 1) {
+                JSObject record = sanitizeRecord(source.optJSONObject(index));
+                if (record != null) records.put(record);
+            }
+            metadataCall = call;
+            int requestId = ++metadataRequestId;
+            metadataTimeout = () -> {
+                if (metadataCall != null && metadataRequestId == requestId) {
+                    PluginCall stalled = metadataCall;
+                    metadataCall = null;
+                    sessionWebView.evaluateJavascript("window.__TAKIP_WEB_OBSERVER__?.cancelMetadata();", null);
+                    JSObject result = new JSObject();
+                    result.put("records", new JSArray());
+                    result.put("connectionFailed", true);
+                    stalled.resolve(result);
+                }
+            };
+            mainHandler.postDelayed(metadataTimeout, 90000);
+            String script = "window.__TAKIP_WEB_OBSERVER__?.queryMetadata(" + requestId + "," + records.toString() + "," +
+                InstagramRequestGate.blockedUntil(getContext()) + ");";
+            sessionWebView.evaluateJavascript(script, null);
         });
     }
 
@@ -199,6 +250,7 @@ public class InstagramCollectorPlugin extends Plugin {
 
     @PluginMethod
     public void clearSession(PluginCall call) {
+        mainHandler.post(this::destroySessionWebView);
         InstagramAccountRepository repository = accountRepository;
         ExecutorService executor = accountExecutor;
         if (repository != null) {
@@ -224,6 +276,7 @@ public class InstagramCollectorPlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         cancelActiveCollection(getContext().getString(R.string.collector_closed));
+        destroySessionWebView();
         if (accountRepository != null) {
             accountRepository.cancelRequests();
         }
@@ -233,9 +286,20 @@ public class InstagramCollectorPlugin extends Plugin {
         super.handleOnDestroy();
     }
 
-    private void startCollection(PluginCall call, String username) {
+    private void startCollection(PluginCall call, String username, String tempo) {
         if (activeCall != null) {
             call.reject("Başka bir Instagram taraması zaten çalışıyor.");
+            return;
+        }
+        if (username.isEmpty()) {
+            call.reject("Tarama için Instagram kullanıcı adını yaz.");
+            return;
+        }
+        long retryAfterMs = InstagramRequestGate.blockedUntil(getContext()) - System.currentTimeMillis();
+        if (retryAfterMs > 0) {
+            JSObject data = new JSObject();
+            data.put("retryAfterMs", retryAfterMs);
+            call.reject("Instagram istekleri geçici olarak sınırladı (HTTP 429). Bekleme süresi henüz dolmadı.", "RATE_LIMITED", data);
             return;
         }
 
@@ -244,18 +308,27 @@ public class InstagramCollectorPlugin extends Plugin {
             call.reject("Instagram ekranı açılamadı.");
             return;
         }
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) ||
+            !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             call.reject(getContext().getString(R.string.collector_webview_update));
             return;
         }
 
         activeCall = call;
+        destroySessionWebView();
+        preparedWebAccount = null;
+        preparingWebProfile = false;
         requestedUsername = username;
+        scanTempo = tempo;
+        if (accountRepository != null) {
+            accountRepository.cancelRequests();
+        }
         accountUsername = "";
         accountUserId = "";
         accountProfilePicUrl = "";
         collectorStarted = false;
         collectorPageLoading = true;
+        loginReady = false;
         pageFinishedAt = 0;
         cancelled = false;
         synchronized (resultLock) {
@@ -324,6 +397,17 @@ public class InstagramCollectorPlugin extends Plugin {
         collectorProgress.setProgressBackgroundTintList(ColorStateList.valueOf(Color.argb(45, 255, 255, 255)));
         toolbar.addView(collectorProgress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)));
 
+        collectorStartButton = new TextView(activity);
+        collectorStartButton.setText(R.string.collector_start);
+        collectorStartButton.setTextColor(Color.rgb(199, 235, 85));
+        collectorStartButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        collectorStartButton.setGravity(Gravity.CENTER);
+        collectorStartButton.setPadding(dp(12), dp(12), dp(12), dp(8));
+        collectorStartButton.setEnabled(false);
+        collectorStartButton.setAlpha(0.4f);
+        collectorStartButton.setOnClickListener((view) -> startCollectorAfterLogin());
+        toolbar.addView(collectorStartButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         TextView securityNote = new TextView(activity);
         securityNote.setText(R.string.collector_security_note);
         securityNote.setTextColor(Color.rgb(60, 56, 78));
@@ -352,6 +436,7 @@ public class InstagramCollectorPlugin extends Plugin {
         cookieManager.setAcceptThirdPartyCookies(collectorWebView, true);
 
         installMessageBridge(collectorWebView);
+        installWebObserver(collectorWebView);
         collectorWebView.setWebChromeClient(new WebChromeClient());
         collectorWebView.setWebViewClient(new WebViewClient() {
             @Override
@@ -370,13 +455,18 @@ public class InstagramCollectorPlugin extends Plugin {
                 super.onPageFinished(view, url);
                 collectorPageLoading = false;
                 pageFinishedAt = SystemClock.uptimeMillis();
-                maybeStartCollector();
+                updateCollectorReadiness();
+                beginCollectorWithWebProfile();
             }
 
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 collectorPageLoading = true;
+                if (collectorStartButton != null) {
+                    collectorStartButton.setEnabled(false);
+                    collectorStartButton.setAlpha(0.4f);
+                }
                 if (collectorStarted) {
                     finishWithError(getContext().getString(R.string.collector_navigation_error));
                 }
@@ -398,7 +488,7 @@ public class InstagramCollectorPlugin extends Plugin {
         collectorDialog.setContentView(root);
         collectorDialog.setOnKeyListener((dialog, keyCode, event) -> {
             if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
-                if (!collectorStarted && collectorWebView != null && collectorWebView.canGoBack()) {
+                if (!collectorStarted && !preparingWebProfile && collectorWebView != null && collectorWebView.canGoBack()) {
                     collectorWebView.goBack();
                 } else {
                     cancelActiveCollection(getContext().getString(R.string.collector_cancelled));
@@ -433,10 +523,19 @@ public class InstagramCollectorPlugin extends Plugin {
             Collections.singleton("https://www.instagram.com"),
             (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
                 if (isMainFrame && isExactInstagramOrigin(sourceOrigin)) {
-                    handleCollectorMessage(message.getData());
+                    handleCollectorMessage(view, message.getData());
                 }
             }
         );
+    }
+
+    @SuppressLint("RequiresFeature")
+    private void installWebObserver(WebView view) {
+        try {
+            WebViewCompat.addDocumentStartJavaScript(view, readAssetScript("instagram-web-observer.js"), Collections.singleton("https://www.instagram.com"));
+        } catch (IOException error) {
+            throw new IllegalStateException("Web profile observer could not be loaded");
+        }
     }
 
     private void startLoginPolling() {
@@ -446,7 +545,7 @@ public class InstagramCollectorPlugin extends Plugin {
                 if (activeCall == null || collectorStarted || collectorWebView == null) {
                     return;
                 }
-                maybeStartCollector();
+                updateCollectorReadiness();
                 if (!collectorStarted) {
                     mainHandler.postDelayed(this, 900);
                 }
@@ -461,35 +560,73 @@ public class InstagramCollectorPlugin extends Plugin {
         mainHandler.postDelayed(loginTimeout, LOGIN_TIMEOUT_MS);
     }
 
-    private void maybeStartCollector() {
-        if (activeCall == null || collectorStarted || collectorWebView == null ||
-            collectorPageLoading || SystemClock.uptimeMillis() - pageFinishedAt < 700) {
+    private void updateCollectorReadiness() {
+        if (activeCall == null || collectorStarted || preparingWebProfile || collectorWebView == null) {
             return;
         }
-        String currentUrl = collectorWebView.getUrl();
-        if (!isReadyInstagramUrl(currentUrl) || !hasInstagramSession()) {
+        boolean ready = isCollectorPageReady();
+        if (collectorStartButton != null) {
+            collectorStartButton.setEnabled(ready);
+            collectorStartButton.setAlpha(ready ? 1f : 0.4f);
+        }
+        if (ready != loginReady) {
+            loginReady = ready;
+            updateNativeProgress("waiting_login", getContext().getString(ready
+                ? R.string.collector_ready : R.string.collector_waiting_login), 8, 0, 0);
+        }
+    }
+
+    private boolean isCollectorPageReady() {
+        return collectorWebView != null && !collectorPageLoading &&
+            SystemClock.uptimeMillis() - pageFinishedAt >= 700 &&
+            isReadyInstagramUrl(collectorWebView.getUrl()) && hasInstagramSession();
+    }
+
+    private void startCollectorAfterLogin() {
+        if (activeCall == null || collectorStarted || preparingWebProfile || !isCollectorPageReady()) {
+            updateCollectorReadiness();
             return;
         }
 
-        collectorStarted = true;
+        preparingWebProfile = true;
         mainHandler.removeCallbacks(loginPoll);
         mainHandler.removeCallbacks(loginTimeout);
-        collectorWebView.setEnabled(false);
+        if (collectorStartButton != null) {
+            collectorStartButton.setEnabled(false);
+            collectorStartButton.setVisibility(View.GONE);
+        }
         updateNativeProgress("profile", getContext().getString(R.string.collector_session_found), 15, 0, 0);
+        resetCollectionWatchdog();
+        collectorWebView.loadUrl("https://www.instagram.com/" + Uri.encode(requestedUsername) + "/");
+    }
+
+    private void beginCollectorWithWebProfile() {
+        if (activeCall == null || !preparingWebProfile || collectorStarted || preparedWebAccount == null || collectorWebView == null) return;
+        if (collectorPageLoading) return;
+        if (SystemClock.uptimeMillis() - pageFinishedAt < 700) {
+            mainHandler.postDelayed(this::beginCollectorWithWebProfile, 750);
+            return;
+        }
+        preparingWebProfile = false;
+        collectorStarted = true;
+        collectorWebView.setEnabled(false);
         resetCollectionWatchdog();
 
         try {
             String script = readCollectorScript();
             String bootstrap = "window.__TAKIP_ATLASI_REQUESTED_USERNAME__=" + JSONObject.quote(requestedUsername) +
-                ";window.__TAKIP_ATLASI_SESSION_USER_ID__=" + JSONObject.quote(sessionUserId()) + ";\n" + script;
+                ";window.__TAKIP_ATLASI_SESSION_USER_ID__=" + JSONObject.quote(sessionUserId()) +
+                ";window.__TAKIP_ATLASI_SCAN_TEMPO__=" + JSONObject.quote(scanTempo) +
+                ";window.__TAKIP_ATLASI_VERIFIED_ACCOUNT__=" + preparedWebAccount.toString() +
+                ";window.__TAKIP_ATLASI_WEBSITE_HEADERS__=window.__TAKIP_WEB_OBSERVER__.headers;window.__TAKIP_ATLASI_PAGE_SIZE__=12;\n" + script;
             collectorWebView.evaluateJavascript(bootstrap, null);
         } catch (IOException error) {
             finishWithError(getContext().getString(R.string.collector_script_error));
         }
     }
 
-    private void handleCollectorMessage(String rawMessage) {
-        if (activeCall == null || cancelled || rawMessage == null) {
+    private void handleCollectorMessage(WebView sourceView, String rawMessage) {
+        if ((sourceView != collectorWebView && sourceView != sessionWebView) || rawMessage == null) {
             return;
         }
         if (rawMessage.length() > 512 * 1024) {
@@ -501,6 +638,28 @@ public class InstagramCollectorPlugin extends Plugin {
         try {
             JSObject message = new JSObject(rawMessage);
             String type = message.getString("type", "");
+            if ("metadata-result".equals(type)) {
+                if (sourceView != sessionWebView || metadataCall == null || message.optInt("requestId", -1) != metadataRequestId) return;
+                if (metadataTimeout != null) mainHandler.removeCallbacks(metadataTimeout);
+                long retryAfterMs = message.optLong("retryAfterMs", 0);
+                if (retryAfterMs > 0) InstagramRequestGate.blockFor(getContext(), retryAfterMs);
+                PluginCall completed = metadataCall;
+                metadataCall = null;
+                completed.resolve(message);
+                return;
+            }
+            if (activeCall == null || cancelled) return;
+            if ("web-profile".equals(type)) {
+                JSONObject account = message.optJSONObject("account");
+                if (account != null && message.optBoolean("hasTemplate") &&
+                    requestedUsername.equals(normalizeUsername(account.optString("username"))) &&
+                    sessionUserId().equals(normalizeUserId(account.optString("userId"))) &&
+                    !sessionUserId().isEmpty() && account.optLong("followerCount", -1) >= 0 && account.optLong("followingCount", -1) >= 0) {
+                    preparedWebAccount = new JSObject(account.toString());
+                    beginCollectorWithWebProfile();
+                }
+                return;
+            }
             if ("progress".equals(type)) {
                 handleProgressMessage(message);
             } else if ("account".equals(type)) {
@@ -512,7 +671,16 @@ public class InstagramCollectorPlugin extends Plugin {
             } else if ("complete".equals(type)) {
                 handleCompleteMessage(message);
             } else if ("error".equals(type)) {
-                finishWithError(safeMessage(message.getString("message", "")));
+                String code = message.getString("code", "COLLECTION_FAILED");
+                JSObject data = new JSObject();
+                if ("RATE_LIMITED".equals(code)) {
+                    InstagramRequestGate.blockFor(getContext(), message.optLong("retryAfterMs", 0));
+                    data.put("retryAfterMs", Math.max(0, InstagramRequestGate.blockedUntil(getContext()) - System.currentTimeMillis()));
+                    if (accountRepository != null) {
+                        accountRepository.cancelRequests();
+                    }
+                }
+                finishWithError(safeMessage(message.getString("message", "")), code, data);
             }
         } catch (JSONException error) {
             finishWithError(getContext().getString(R.string.collector_invalid_response));
@@ -606,6 +774,9 @@ public class InstagramCollectorPlugin extends Plugin {
         CookieManager.getInstance().flush();
         PluginCall completedCall = activeCall;
         activeCall = null;
+        sessionWebView = collectorWebView;
+        collectorWebView = null;
+        if (sessionWebView.getParent() instanceof ViewGroup) ((ViewGroup) sessionWebView.getParent()).removeView(sessionWebView);
         closeCollectorDialog();
         completedCall.resolve(summary);
     }
@@ -642,10 +813,14 @@ public class InstagramCollectorPlugin extends Plugin {
         PluginCall cancelledCall = activeCall;
         activeCall = null;
         closeCollectorDialog();
-        cancelledCall.reject(message);
+        cancelledCall.reject(message, "CANCELLED");
     }
 
     private void finishWithError(String message) {
+        finishWithError(message, "COLLECTION_FAILED", null);
+    }
+
+    private void finishWithError(String message, String code, JSObject data) {
         if (activeCall == null) {
             closeCollectorDialog();
             return;
@@ -655,7 +830,7 @@ public class InstagramCollectorPlugin extends Plugin {
         PluginCall failedCall = activeCall;
         activeCall = null;
         closeCollectorDialog();
-        failedCall.reject(safe);
+        failedCall.reject(safe, code, data);
     }
 
     private void closeCollectorDialog() {
@@ -675,9 +850,12 @@ public class InstagramCollectorPlugin extends Plugin {
         WebView webView = collectorWebView;
         collectorWebView = null;
         collectorStatus = null;
+        collectorStartButton = null;
         collectorProgress = null;
         collectorStarted = false;
+        preparingWebProfile = false;
         collectorPageLoading = false;
+        loginReady = false;
         if (webView != null) {
             webView.stopLoading();
             webView.loadUrl("about:blank");
@@ -690,6 +868,28 @@ public class InstagramCollectorPlugin extends Plugin {
         collectorDialog = null;
         if (dialog != null && dialog.isShowing()) {
             dialog.dismiss();
+        }
+    }
+
+    private void cancelWebMetadata() {
+        if (sessionWebView != null) sessionWebView.evaluateJavascript("window.__TAKIP_WEB_OBSERVER__?.cancelMetadata();", null);
+        if (metadataTimeout != null) mainHandler.removeCallbacks(metadataTimeout);
+        if (metadataCall != null) {
+            PluginCall cancelledMetadata = metadataCall;
+            metadataCall = null;
+            metadataRequestId += 1;
+            JSObject result = new JSObject();
+            result.put("records", new JSArray());
+            cancelledMetadata.resolve(result);
+        }
+    }
+
+    private void destroySessionWebView() {
+        cancelWebMetadata();
+        if (sessionWebView != null) {
+            sessionWebView.stopLoading();
+            sessionWebView.destroy();
+            sessionWebView = null;
         }
     }
 
@@ -743,19 +943,7 @@ public class InstagramCollectorPlugin extends Plugin {
     }
 
     private boolean isReadyInstagramUrl(String value) {
-        try {
-            Uri uri = Uri.parse(value);
-            if (!isExactInstagramOrigin(uri)) {
-                return false;
-            }
-            String path = uri.getPath() == null ? "/" : uri.getPath().toLowerCase(Locale.ROOT);
-            return !path.startsWith("/accounts/login") &&
-                !path.startsWith("/accounts/signup") &&
-                !path.startsWith("/challenge") &&
-                !path.startsWith("/checkpoint");
-        } catch (Exception error) {
-            return false;
-        }
+        return InstagramLoginState.isReadyUrl(value);
     }
 
     private boolean isExactInstagramOrigin(Uri uri) {
@@ -845,10 +1033,14 @@ public class InstagramCollectorPlugin extends Plugin {
     }
 
     private String readCollectorScript() throws IOException {
+        return readAssetScript("instagram-collector.js");
+    }
+
+    private String readAssetScript(String name) throws IOException {
         StringBuilder script = new StringBuilder();
         try (
             BufferedReader reader = new BufferedReader(
-                new InputStreamReader(getContext().getAssets().open("instagram-collector.js"), StandardCharsets.UTF_8)
+                new InputStreamReader(getContext().getAssets().open(name), StandardCharsets.UTF_8)
             )
         ) {
             String line;
@@ -884,7 +1076,7 @@ public class InstagramCollectorPlugin extends Plugin {
             mainHandler.removeCallbacks(collectionWatchdog);
         }
         collectionWatchdog = () -> {
-            if (activeCall != null && collectorStarted) {
+            if (activeCall != null && (collectorStarted || preparingWebProfile)) {
                 finishWithError(getContext().getString(R.string.collector_stalled));
             }
         };

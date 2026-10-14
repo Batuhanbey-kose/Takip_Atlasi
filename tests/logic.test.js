@@ -21,11 +21,23 @@ async function runAndroidCollector(fetchImpl, options = {}) {
     sandbox.window = {
       __TAKIP_ATLASI_REQUESTED_USERNAME__: options.requestedUsername ?? "owner",
       __TAKIP_ATLASI_SESSION_USER_ID__: options.sessionUserId ?? "",
-      setTimeout: (callback) => setImmediate(callback),
+      __TAKIP_ATLASI_SCAN_TEMPO__: options.tempo,
+      __TAKIP_ATLASI_VERIFIED_ACCOUNT__: options.preparedAccount,
+      __TAKIP_ATLASI_WEBSITE_HEADERS__: options.websiteHeaders,
+      __TAKIP_ATLASI_PAGE_SIZE__: options.pageSize,
+      setTimeout: (callback, milliseconds) => {
+        if (options.onTimer) {
+          options.onTimer(milliseconds);
+        }
+        return setImmediate(callback);
+      },
       clearTimeout: (handle) => clearImmediate(handle),
       TakipAtlasiNative: {
         postMessage: (rawMessage) => {
           const message = JSON.parse(rawMessage);
+          if (options.onMessage) {
+            options.onMessage(message);
+          }
           if (message.type === "complete" || message.type === "error") {
             resolve(message);
           }
@@ -138,17 +150,17 @@ test("PC arşiv analizi ve Android yerel toplayıcı ayrı çalışma yollarına
   assert.equal(packageJson.scripts.start, "node scripts/serve.js");
 });
 
-test("sayaç sıralaması listedeki bütün hesapları paralel işler", () => {
+test("sayaç sıralaması bütün listeyi kapsar ve hesap istekleri tek işçiyle sınırlıdır", () => {
   const appSource = fs.readFileSync(path.join(__dirname, "../www/app.js"), "utf8");
   const repositorySource = fs.readFileSync(
     path.join(__dirname, "../android/app/src/main/java/com/takipatlasi/app/InstagramAccountRepository.java"),
     "utf8",
   );
 
-  assert.match(appSource, /metadataSort \|\| metadataFilter \? queryMatches : visible/);
+  assert.match(appSource, /queryMatches\.filter\(\(person\) => !visibleNames\.has\(person\.username\)\)/);
   assert.doesNotMatch(appSource, /queryMatches\.slice\(0, state\.limit\)/);
-  assert.match(repositorySource, /MAX_METADATA_BATCH = 24/);
-  assert.match(repositorySource, /METADATA_WORKERS = 4/);
+  assert.match(repositorySource, /MAX_METADATA_BATCH = 4/);
+  assert.match(repositorySource, /METADATA_WORKERS = 1/);
 });
 
 test("Android yerel Instagram toplayıcısı sayfalı listeleri telefonda birleştirir", async () => {
@@ -232,10 +244,10 @@ test("Android yerel Instagram toplayıcısı sayfalı listeleri telefonda birle�
   assert.ok(requests.some((request) => request.includes("/friendships/999/followers/")));
   assert.ok(requests.some((request) => request.includes("max_id=cursor-2")));
   assert.ok(requests.every((request) => !request.includes("/users/999/info/")));
-  assert.ok(requests.some((request) => request.includes("count=100")));
+  assert.ok(requests.some((request) => request.includes("count=50")));
 });
 
-test("Android toplayıcı eksik sayaçları doğrulanmış web profilinden tamamlar ve 100 kişilik sayfaları okur", async () => {
+test("Android toplayıcı eksik sayaçları tamamlar ve sunucunun döndürdüğü sayfaları birleştirir", async () => {
   const requests = [];
   const response = (payload, status = 200) => ({
     ok: status === 200,
@@ -248,7 +260,7 @@ test("Android toplayıcı eksik sayaçları doğrulanmış web profilinden tamam
       return response({ user: { pk: "999", username: "owner" } });
     }
     if (pathname.includes("/users/999/info/")) {
-      return response({}, 403);
+      return response({}, 404);
     }
     if (pathname.includes("/users/web_profile_info/")) {
       return response({ data: { user: { id: "999", username: "owner", edge_followed_by: { count: 101 }, edge_follow: { count: 0 } } } });
@@ -264,8 +276,67 @@ test("Android toplayıcı eksik sayaçları doğrulanmış web profilinden tamam
   assert.equal(result.type, "complete");
   assert.equal(result.followersCount, 101);
   assert.equal(result.followingCount, 0);
-  assert.ok(requests.some((request) => request.includes("count=100")));
+  assert.ok(requests.some((request) => request.includes("count=50")));
   assert.ok(requests.some((request) => request.includes("max_id=next")));
+});
+
+test("Temkinli ve kullanıcı seçimiyle artan tempolar tüm tarama isteklerine uygulanır", async () => {
+  for (const [tempo, minimum, maximum] of [
+    [undefined, 2000, 3000], ["slow", 2000, 3000], ["original", 1100, 2000],
+    ["steady", 900, 1500], ["toString", 2000, 3000],
+  ]) {
+    const pauses = [];
+    const requests = [];
+    const result = await runAndroidCollector(async (pathname) => {
+      requests.push(pathname);
+      if (pathname.includes("/accounts/current_user/")) {
+        return { ok: true, status: 200, json: async () => ({ user: { pk: "999", username: "owner", follower_count: 2, following_count: 0 } }) };
+      }
+      if (pathname.includes("/followers/")) {
+        return { ok: true, status: 200, json: async () => pathname.includes("max_id=next")
+          ? { users: [{ username: "beta" }] }
+          : { users: [{ username: "alpha" }], next_max_id: "next" } };
+      }
+      return { ok: true, status: 200, json: async () => ({ users: [] }) };
+    }, { tempo, onTimer: (milliseconds) => { if (milliseconds < 45000) pauses.push(milliseconds); } });
+
+    assert.equal(result.type, "complete");
+    assert.equal(requests.length, 4);
+    assert.equal(pauses.length, 3, "Hesap sorgusu ile iki liste arasındaki geçişler de beklemeli");
+    assert.ok(pauses.every((duration) => duration >= minimum && duration <= maximum));
+    assert.ok(requests.filter((request) => request.includes("/friendships/")).every((request) => request.includes("count=50")));
+  }
+});
+
+test("Doğrulanmış web profili eski hesap sorgularını atlar ve yalnızca izinli başlıkları kullanır", async () => {
+  const requests = [];
+  const result = await runAndroidCollector(async (pathname, options) => {
+    requests.push(pathname);
+    assert.ok(pathname.includes("/friendships/999/"));
+    assert.ok(pathname.includes("count=12"));
+    assert.equal(options.headers["X-ASBD-ID"], "test-asbd");
+    assert.equal(options.headers["X-IG-WWW-Claim"], "test-claim");
+    assert.equal(options.headers.Cookie, undefined);
+    assert.equal(options.headers["User-Agent"], undefined);
+    assert.equal(options.redirect, "manual");
+    return { ok: true, status: 200, json: async () => ({ users: [{ username: "alpha" }] }) };
+  }, {
+    preparedAccount: { userId: "999", username: "owner", followerCount: 1, followingCount: 1 },
+    websiteHeaders: { "X-ASBD-ID": "test-asbd", "X-IG-WWW-Claim": "test-claim", Cookie: "ignored", "User-Agent": "ignored" },
+    pageSize: 12,
+  });
+  assert.equal(result.type, "complete");
+  assert.equal(requests.length, 2);
+});
+
+test("API yönlendirmesi HTML veya kullanıcı adı hatası diye gizlenmez", async () => {
+  let requests = 0;
+  const result = await runAndroidCollector(async () => {
+    requests += 1;
+    return { status: 0, type: "opaqueredirect", ok: false };
+  });
+  assert.equal(result.code, "API_REDIRECT");
+  assert.equal(requests, 1);
 });
 
 test("Android toplayıcı hesap uçları reddedilince oturum kimliğiyle eşleşen kullanıcı adını doğrular", async () => {
@@ -278,7 +349,7 @@ test("Android toplayıcı hesap uçları reddedilince oturum kimliğiyle eşleş
   const result = await runAndroidCollector(async (pathname) => {
     requests.push(pathname);
     if (pathname.includes("/accounts/current_user/") || pathname.includes("/users/999/info/")) {
-      return response({}, 403);
+      return response({}, 404);
     }
     if (pathname.includes("/users/web_profile_info/")) {
       return response({ data: { user: { id: "999", username: "owner", edge_followed_by: { count: 1 }, edge_follow: { count: 1 } } } });
@@ -299,7 +370,7 @@ test("Android toplayıcı düzenleme uç noktası kapalıyken temel hesap yanıt
   const result = await runAndroidCollector(async (pathname) => {
     requests.push(pathname);
     if (pathname.includes("edit=true")) {
-      return { ok: false, status: 403, json: async () => ({}) };
+      return { ok: false, status: 400, json: async () => ({}) };
     }
     if (pathname === "/api/v1/accounts/current_user/") {
       return { ok: true, status: 200, json: async () => ({ user: { pk_id: "999", username: "owner", follower_count: 0, following_count: 0 } }) };
@@ -310,6 +381,81 @@ test("Android toplayıcı düzenleme uç noktası kapalıyken temel hesap yanıt
   assert.equal(result.type, "complete");
   assert.ok(requests.includes("/api/v1/accounts/current_user/"));
   assert.ok(requests.every((request) => !request.includes("/users/web_profile_info/")));
+});
+
+test("Ekrandaki 400, 400, 429 akışı kullanıcı adı hatasına dönüştürülmez ve durur", async () => {
+  const requests = [];
+  const messages = [];
+  const result = await runAndroidCollector(async (pathname) => {
+    requests.push(pathname);
+    if (pathname.includes("/users/999/info/")) {
+      return {
+        ok: false, status: 429,
+        headers: { get: () => "120" },
+        json: async () => { throw new Error("HTML yanıtı JSON olarak okunmamalı"); },
+      };
+    }
+    return { ok: false, status: 400, json: async () => ({}) };
+  }, { requestedUsername: "", onMessage: (message) => messages.push(message) });
+
+  assert.equal(result.type, "error");
+  assert.equal(result.code, "RATE_LIMITED");
+  assert.equal(result.retryAfterMs, 120000);
+  assert.match(result.message, /HTTP 429/);
+  assert.doesNotMatch(result.message, /kullanıcı adını yaz|JSON yok/);
+  assert.equal(requests.length, 3);
+  assert.ok(messages.every((message) => !["page", "complete"].includes(message.type)));
+});
+
+test("Liste isteğindeki 429 tek istekten sonra durur ve diğer listeye geçmez", async () => {
+  const requests = [];
+  const result = await runAndroidCollector(async (pathname) => {
+    requests.push(pathname);
+    if (pathname.includes("/accounts/current_user/")) {
+      return { ok: true, status: 200, json: async () => ({ user: { pk: "999", username: "owner", follower_count: 1, following_count: 0 } }) };
+    }
+    return { ok: false, status: 429, headers: { get: () => null }, json: async () => ({}) };
+  });
+
+  assert.equal(result.code, "RATE_LIMITED");
+  assert.equal(result.retryAfterMs, 900000);
+  assert.equal(requests.filter((request) => request.includes("/followers/")).length, 1);
+  assert.ok(requests.every((request) => !request.includes("/following/")));
+});
+
+test("Retry-After HTTP tarihi desteklenir, aşırı bekleme süresi sınırlandırılır", async () => {
+  const future = new Date(Date.now() + 120000).toUTCString();
+  const result = await runAndroidCollector(async () => ({
+    ok: false, status: 429, headers: { get: () => future }, json: async () => ({}),
+  }));
+  assert.equal(result.code, "RATE_LIMITED");
+  assert.ok(result.retryAfterMs > 110000 && result.retryAfterMs <= 120000);
+  const excessive = await runAndroidCollector(async () => ({
+    ok: false, status: 429, headers: { get: () => "999999999999" }, json: async () => ({}),
+  }));
+  assert.equal(excessive.retryAfterMs, 86400000);
+});
+
+test("Geçersiz oturum yanıtından sonra alternatif uçlara istek gönderilmez", async () => {
+  let count = 0;
+  const result = await runAndroidCollector(async () => {
+    count += 1;
+    return { ok: false, status: 401, json: async () => ({ message: "login_required" }) };
+  });
+  assert.equal(result.code, "SESSION_REQUIRED");
+  assert.equal(count, 1);
+});
+
+test("400 yanıtındaki istemci uyumsuzluğu kullanıcı adı hatası diye gösterilmez", async () => {
+  let count = 0;
+  const result = await runAndroidCollector(async () => {
+    count += 1;
+    return { ok: false, status: 400, json: async () => ({ status: "fail", message: "useragent mismatch; sessionid=private-value" }) };
+  });
+  assert.equal(result.code, "UNSUPPORTED_CLIENT");
+  assert.match(result.message, /istemci uyumsuzluğu/);
+  assert.doesNotMatch(result.message, /private-value|sessionid/);
+  assert.equal(count, 1);
 });
 
 test("Android toplayıcı büyük hesap numarasını yuvarlamaz ve yerel WebView kimliğini doğrular", async () => {
@@ -327,7 +473,7 @@ test("Android toplayıcı büyük hesap numarasını yuvarlamaz ve yerel WebView
     if (pathname.includes("/friendships/")) {
       return { ok: true, status: 200, json: async () => ({ users: [] }) };
     }
-    return { ok: false, status: 403, json: async () => ({}) };
+    return { ok: false, status: 404, json: async () => ({}) };
   }, { cookie: "csrftoken=test-token", sessionUserId: exactId });
 
   assert.equal(result.type, "complete");
@@ -345,7 +491,7 @@ test("Android toplayıcı yuvarlanmış hesap numarasını kimlik doğrulaması 
         json: async () => ({ data: { user: { pk: Number(exactId), username: "owner", follower_count: 0, following_count: 0 } } }),
       };
     }
-    return { ok: false, status: 403, json: async () => ({}) };
+    return { ok: false, status: 404, json: async () => ({}) };
   }, { cookie: "csrftoken=test-token", sessionUserId: exactId });
 
   assert.equal(result.type, "error");
@@ -360,9 +506,9 @@ test("Android toplayıcı API engelini tanılanabilir ama çerezsiz mesajla bild
   }));
 
   assert.equal(result.type, "error");
+  assert.equal(result.code, "REQUEST_DENIED");
   assert.match(result.message, /hesap:HTTP 403/);
-  assert.match(result.message, /temel:HTTP 403/);
-  assert.match(result.message, /profil:HTTP 403/);
+  assert.doesNotMatch(result.message, /temel:|profil:/);
   assert.doesNotMatch(result.message, /ds_user_id|sessionid|test-token/);
 });
 
@@ -373,7 +519,7 @@ test("Android toplayıcı çerezde kullanıcı kimliği yokken doğrulanmış he
       return response({ user: { pk: "999" } });
     }
     if (pathname.includes("/users/999/info/")) {
-      return response({}, 403);
+      return response({}, 404);
     }
     if (pathname.includes("/users/web_profile_info/")) {
       return response({ data: { user: { id: "999", username: "owner", follower_count: 0, following_count: 0 } } });
@@ -393,7 +539,7 @@ test("Android toplayıcı başka hesaba ait web profilini oturum sahibi saymaz",
     if (pathname.includes("/users/web_profile_info/")) {
       return response({ data: { user: { id: "123", username: "owner", follower_count: 1, following_count: 1 } } });
     }
-    return response({}, 403);
+    return response({}, 404);
   });
 
   assert.equal(result.type, "error");
@@ -407,7 +553,7 @@ test("Android toplayıcı kullanıcı adı boşken doğrulanamayan hesabı tahmi
     if (pathname.includes("/accounts/current_user/")) {
       return response({ user: { pk: "999" } });
     }
-    return response({}, 403);
+    return response({}, 404);
   }, { requestedUsername: "" });
 
   assert.equal(result.type, "error");

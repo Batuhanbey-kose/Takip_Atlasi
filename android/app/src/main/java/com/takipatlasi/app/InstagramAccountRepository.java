@@ -43,8 +43,8 @@ final class InstagramAccountRepository {
 
     private static final String APP_ID = "936619743392459";
     private static final String INSTAGRAM_ORIGIN = "https://www.instagram.com";
-    private static final int MAX_METADATA_BATCH = 24;
-    private static final int METADATA_WORKERS = 4;
+    private static final int MAX_METADATA_BATCH = 4;
+    private static final int METADATA_WORKERS = 1;
     private static final int MAX_PHOTO_BATCH = 48;
     private static final int MAX_JSON_BYTES = 512 * 1024;
     private static final int MAX_PHOTO_BYTES = 2 * 1024 * 1024;
@@ -73,6 +73,9 @@ final class InstagramAccountRepository {
         int requestGeneration = generation.get();
         JSArray results = new JSArray();
         boolean sessionRequired = false;
+        boolean requestRejected = false;
+        boolean connectionFailed = false;
+        blockedUntil = Math.max(blockedUntil, InstagramRequestGate.blockedUntil(context));
         long retryAfterMs = Math.max(0, blockedUntil - System.currentTimeMillis());
         int limit = Math.min(sourceRecords == null ? 0 : sourceRecords.length(), MAX_METADATA_BATCH);
         List<Identity> pending = new ArrayList<>();
@@ -120,7 +123,7 @@ final class InstagramAccountRepository {
                     try {
                         return new MetadataFetch(identity, fetchMetadata(identity, requestGeneration), null);
                     } catch (InstagramRequestException error) {
-                        if (error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 429 || (error.statusCode >= 300 && error.statusCode < 400)) {
+                        if (error.statusCode == 0 || error.statusCode == 400 || error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 429 || (error.statusCode >= 300 && error.statusCode < 400)) {
                             stop.set(true);
                         }
                         return new MetadataFetch(identity, null, error);
@@ -138,6 +141,9 @@ final class InstagramAccountRepository {
                         continue;
                     }
                     if (fetch.metadata != null) {
+                        if (requestGeneration != generation.get()) {
+                            break;
+                        }
                         metadataCache.put(fetch.identity.cacheKey(), fetch.metadata);
                         metadataFailures.remove(fetch.identity.cacheKey());
                         results.put(fetch.metadata);
@@ -148,12 +154,15 @@ final class InstagramAccountRepository {
                         continue;
                     }
                     metadataFailures.put(fetch.identity.cacheKey(), System.currentTimeMillis());
+                    requestRejected |= error.statusCode == 400;
+                    connectionFailed |= error.statusCode == 0;
                     if (error.statusCode == 401 || error.statusCode == 403 || (error.statusCode >= 300 && error.statusCode < 400)) {
                         sessionRequired = true;
                     }
                     if (error.statusCode == 429) {
                         long backoff = Math.max(15 * 60 * 1000L, error.retryAfterMs);
-                        blockedUntil = System.currentTimeMillis() + backoff;
+                        InstagramRequestGate.blockFor(context, backoff);
+                        blockedUntil = InstagramRequestGate.blockedUntil(context);
                         retryAfterMs = Math.max(retryAfterMs, backoff);
                     }
                 }
@@ -167,6 +176,8 @@ final class InstagramAccountRepository {
         JSObject response = new JSObject();
         response.put("records", results);
         response.put("sessionRequired", sessionRequired);
+        response.put("requestRejected", requestRejected);
+        response.put("connectionFailed", connectionFailed);
         response.put("retryAfterMs", retryAfterMs);
         return response;
     }
@@ -270,6 +281,10 @@ final class InstagramAccountRepository {
         if (requestGeneration != generation.get()) {
             throw new InstagramRequestException(499, 0);
         }
+        long remainingCooldown = InstagramRequestGate.blockedUntil(context) - System.currentTimeMillis();
+        if (remainingCooldown > 0) {
+            throw new InstagramRequestException(429, remainingCooldown);
+        }
         String cookies = CookieManager.getInstance().getCookie(INSTAGRAM_ORIGIN + "/");
         if (!hasSessionCookie(cookies)) {
             throw new InstagramRequestException(401, 0);
@@ -301,6 +316,9 @@ final class InstagramAccountRepository {
             int status = connection.getResponseCode();
             if (status != 200) {
                 long retryAfterMs = status == 429 ? parseRetryAfter(connection.getHeaderField("Retry-After")) : 0;
+                if (status == 429) {
+                    InstagramRequestGate.blockFor(context, Math.max(15 * 60 * 1000L, retryAfterMs));
+                }
                 throw new InstagramRequestException(status, retryAfterMs);
             }
             byte[] body = readLimited(connection.getInputStream(), MAX_JSON_BYTES);
@@ -312,6 +330,9 @@ final class InstagramAccountRepository {
         } catch (InstagramRequestException error) {
             throw error;
         } catch (Exception error) {
+            if (requestGeneration != generation.get() || Thread.currentThread().isInterrupted()) {
+                throw new InstagramRequestException(499, 0);
+            }
             throw new InstagramRequestException(0, 0);
         } finally {
             unregisterConnection(connection);
@@ -475,7 +496,7 @@ final class InstagramAccountRepository {
     }
 
     static long nextMetadataDelayMillis() {
-        return ThreadLocalRandom.current().nextLong(100, 251);
+        return ThreadLocalRandom.current().nextLong(2000, 3001);
     }
 
     private void registerConnection(HttpURLConnection connection) {

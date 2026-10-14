@@ -16,6 +16,17 @@
   const APP_ID = "936619743392459";
   const MAX_PAGES = 300;
   const MAX_COUNT_DRIFT = 25;
+  const scanTempos = {
+    slow: { minDelay: 2000, maxDelay: 3000 },
+    original: { minDelay: 1100, maxDelay: 2000 },
+    steady: { minDelay: 900, maxDelay: 1500 },
+  };
+  const tempoName = ["slow", "original", "steady"].includes(window.__TAKIP_ATLASI_SCAN_TEMPO__)
+    ? window.__TAKIP_ATLASI_SCAN_TEMPO__ : "slow";
+  const scanTempo = scanTempos[tempoName];
+  const pageSize = [12, 25, 50].includes(window.__TAKIP_ATLASI_PAGE_SIZE__)
+    ? window.__TAKIP_ATLASI_PAGE_SIZE__ : 50;
+  let requestedOnce = false;
   const requestedUsername = normalizeUsername(
     window.__TAKIP_ATLASI_REQUESTED_USERNAME__,
   );
@@ -43,12 +54,14 @@
   }
 
   function randomPause() {
-    return pause(500 + Math.floor(Math.random() * 350));
+    return pause(scanTempo.minDelay + Math.floor(Math.random() * (scanTempo.maxDelay - scanTempo.minDelay + 1)));
   }
 
   function ensureActive() {
     if (window.__TAKIP_ATLASI_NATIVE_CANCELLED__) {
-      throw new Error("Tarama durduruldu.");
+      const error = new Error("Tarama durduruldu.");
+      error.code = "CANCELLED";
+      throw error;
     }
   }
 
@@ -117,89 +130,142 @@
     return error && /zaman aşımına/i.test(error.message) ? "zaman aşımı" : "bağlantı hatası";
   }
 
-  async function instagramRequest(pathname, retries = 2) {
-    for (let attempt = 0; attempt <= retries; attempt += 1) {
-      ensureActive();
-      const csrfToken = readCookie("csrftoken");
-      const headers = {
-        Accept: "*/*",
-        "X-IG-App-ID": APP_ID,
-        "X-Requested-With": "XMLHttpRequest",
-      };
-      if (csrfToken) {
-        headers["X-CSRFToken"] = csrfToken;
-      }
+  function retryDelay(response) {
+    const value = response.headers && response.headers.get("Retry-After");
+    const seconds = /^\d+(?:\.\d+)?$/.test(String(value || "")) ? Number(value) : NaN;
+    const milliseconds = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+    return Number.isFinite(milliseconds) && milliseconds > 0
+      ? Math.min(24 * 60 * 60 * 1000, Math.max(1000, Math.ceil(milliseconds)))
+      : 15 * 60 * 1000;
+  }
 
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 45000);
+  function responseError(response, payload) {
+    const status = response.status;
+    // Never echo the raw server message: it can contain private values. Keep only
+    // known error categories so a rejected client is not mistaken for a bad username.
+    const signal = `${payload && payload.error_type || ""} ${payload && payload.message || ""}`.toLowerCase();
+    let code = "REQUEST_REJECTED";
+    let message = `Instagram isteği reddetti (HTTP ${status}).`;
+    if (status === 429 || /rate_limit|feedback_required|please wait|too many requests/.test(signal)) {
+      code = "RATE_LIMITED";
+      message = `Instagram istekleri geçici olarak sınırladı (HTTP ${status}). Tarama durduruldu; bekleme süresi dolmadan yeni istek gönderilmeyecek.`;
+    } else if (/challenge_required|checkpoint_required/.test(signal)) {
+      code = "VERIFICATION_REQUIRED";
+      message = `Instagram ek hesap doğrulaması istiyor (HTTP ${status}). Instagram giriş ekranında doğrulamayı tamamla.`;
+    } else if (status === 401 || /login_required/.test(signal)) {
+      code = "SESSION_REQUIRED";
+      message = `Instagram oturumu kabul etmedi (HTTP ${status}). Instagram girişini yeniden tamamla.`;
+    } else if (status === 403) {
+      code = "REQUEST_DENIED";
+      message = "Instagram bu isteğe erişimi reddetti (HTTP 403). Tarama durduruldu.";
+    } else if (/useragent mismatch|user.agent mismatch|unsupported client/.test(signal)) {
+      code = "UNSUPPORTED_CLIENT";
+      message = `Instagram uygulamanın bağlantı türünü kabul etmedi (HTTP ${status}, istemci uyumsuzluğu). Kullanıcı adını değiştirmek bu hatayı çözmez.`;
+    } else if (!payload && status === 200) {
+      code = "RESPONSE_FORMAT";
+      message = "Instagram hesap verisi yerine farklı bir sayfa döndürdü (HTTP 200, JSON yok).";
+    }
+    const error = new Error(message);
+    error.code = code;
+    error.httpStatus = status;
+    error.responseKind = code === "RATE_LIMITED" ? "http" :
+      !payload ? "json" : payload.status === "fail" ? "fail" : "http";
+    if (code === "RATE_LIMITED") {
+      error.retryAfterMs = retryDelay(response);
+    }
+    return error;
+  }
+
+  async function instagramRequest(pathname) {
+    ensureActive();
+    if (requestedOnce) {
+      await randomPause();
+      ensureActive();
+    }
+    requestedOnce = true;
+    const csrfToken = readCookie("csrftoken");
+    const headers = {
+      Accept: "*/*",
+      "X-IG-App-ID": APP_ID,
+      "X-Requested-With": "XMLHttpRequest",
+    };
+    const websiteHeaders = window.__TAKIP_ATLASI_WEBSITE_HEADERS__ || {};
+    ["X-IG-App-ID", "X-ASBD-ID", "X-IG-WWW-Claim", "X-Web-Session-ID", "X-CSRFToken"].forEach((name) => {
+      const value = websiteHeaders[name];
+      if (typeof value === "string" && value.length <= 4000) headers[name] = value;
+    });
+    if (csrfToken) {
+      headers["X-CSRFToken"] = csrfToken;
+    }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 45000);
+    try {
       let response;
       try {
         response = await fetch(pathname, {
           method: "GET",
           credentials: "include",
+          redirect: "manual",
           headers,
           signal: controller.signal,
         });
-      } catch (error) {
-        if (error && error.name === "AbortError") {
-          throw new Error("Instagram isteği zaman aşımına uğradı. İnternet bağlantını kontrol et.");
-        }
+      } catch (cause) {
+        ensureActive();
+        const error = new Error(cause && cause.name === "AbortError"
+          ? "Instagram isteği zaman aşımına uğradı. İnternet bağlantını kontrol et."
+          : "Instagram'a bağlantı kurulamadı. İnternet bağlantını kontrol et.");
+        error.code = cause && cause.name === "AbortError" ? "TIMEOUT" : "NETWORK_ERROR";
         throw error;
-      } finally {
-        window.clearTimeout(timeout);
       }
-
-      if (response.status === 429 && attempt < retries) {
-        const waitSeconds = 15 * (attempt + 1);
-        update({
-          message: `Instagram kısa bir mola istedi; ${waitSeconds} saniye bekleniyor...`,
-        });
-        await pause(waitSeconds * 1000);
-        continue;
+      ensureActive();
+      if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+        const error = new Error("Instagram veri isteğini API yanıtı yerine başka bir sayfaya yönlendirdi. Bu sorgu geçerli veri döndürmüyor.");
+        error.code = "API_REDIRECT";
+        throw error;
       }
-
+      // Respect a rate limit immediately, even when the response body is HTML.
+      if (response.status === 429) {
+        throw responseError(response, null);
+      }
       let payload = null;
       try {
         payload = await response.json();
-      } catch (error) {
+      } catch (cause) {
         payload = null;
       }
-
-      if (response.status === 401 || response.status === 403) {
-        const error = new Error("Instagram oturumu doğrulanamadı. Yeniden giriş yapmayı dene.");
-        error.httpStatus = response.status;
-        throw error;
-      }
-      if (!response.ok || !payload) {
-        const error = new Error(`Instagram liste isteğini reddetti (HTTP ${response.status}).`);
-        error.httpStatus = response.status;
-        error.responseKind = payload ? "http" : "json";
-        throw error;
-      }
-      if (payload.status === "fail") {
-        const error = new Error(
-          payload.message || payload.error_type || "Instagram isteği başarısız oldu.",
-        );
-        error.httpStatus = response.status;
-        error.responseKind = "fail";
-        throw error;
+      ensureActive();
+      if (!response.ok || !payload || payload.status === "fail") {
+        throw responseError(response, payload);
       }
       return payload;
+    } finally {
+      window.clearTimeout(timeout);
     }
-
-    throw new Error("Instagram isteği tamamlanamadı.");
   }
 
   async function currentAccount() {
+    const prepared = window.__TAKIP_ATLASI_VERIFIED_ACCOUNT__;
+    if (prepared && sessionUserId && normalizeUserId(prepared.userId) === sessionUserId &&
+      normalizeUsername(prepared.username) && (!requestedUsername || normalizeUsername(prepared.username) === requestedUsername) &&
+      normalizeCount(prepared.followerCount) !== null && normalizeCount(prepared.followingCount) !== null) {
+      return { userId: sessionUserId, username: normalizeUsername(prepared.username),
+        profilePicUrl: normalizeProfilePicUrl(prepared.profilePicUrl),
+        followerCount: normalizeCount(prepared.followerCount), followingCount: normalizeCount(prepared.followingCount) };
+    }
     let user = null;
     const checks = [];
     async function accountRequest(label, path) {
       update({ phase: "profile", message: `Instagram hesap sorgusu: ${label}...` });
       try {
-        const payload = await instagramRequest(path, 0);
+        const payload = await instagramRequest(path);
         checks.push(`${label}:OK`);
         return payload;
       } catch (error) {
+        if (["RATE_LIMITED", "SESSION_REQUIRED", "REQUEST_DENIED", "VERIFICATION_REQUIRED",
+          "UNSUPPORTED_CLIENT", "API_REDIRECT", "TIMEOUT", "NETWORK_ERROR", "CANCELLED"].includes(error.code)) {
+          error.message += ` (${label}:${requestDiagnostic(error)})`;
+          throw error;
+        }
         checks.push(`${label}:${requestDiagnostic(error)}`);
         return null;
       }
@@ -376,7 +442,7 @@
     for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber += 1) {
       ensureActive();
       const query = new URLSearchParams({
-        count: "100",
+        count: String(pageSize),
         search_surface: "follow_list_page",
       });
       if (pageId) {
@@ -429,7 +495,6 @@
       }
       seenPages.add(nextId);
       pageId = nextId;
-      await randomPause();
     }
 
     throw new Error("Liste beklenenden uzun olduğu için güvenlik sınırında durduruldu.");
@@ -491,6 +556,8 @@
         message: error && error.message
           ? String(error.message).slice(0, 500)
           : "Instagram taraması tamamlanamadı.",
+        code: error && error.code || "COLLECTION_FAILED",
+        retryAfterMs: error && error.retryAfterMs || 0,
       });
     }
   }

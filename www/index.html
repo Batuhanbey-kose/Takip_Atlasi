@@ -18,7 +18,7 @@
       document.documentElement.dataset.themeMode = "light";
     }
   </script>
-  <link rel="stylesheet" href="styles.css?v=14">
+  <link rel="stylesheet" href="styles.css?v=16">
 </head>
 <body>
   <div class="ambient" aria-hidden="true">
@@ -74,11 +74,11 @@
           <div class="setup-card__header">
             <span class="step-label">01 / Profilini aç</span>
             <h2 id="setupTitle">Analiz alanını hazırla</h2>
-            <p>Instagram JSON arşivini cihazında analiz et veya Android'de Instagram'a bağlan.</p>
+            <p>PC veya Android'de Instagram'a bağlan; takip listelerini cihazında analiz et.</p>
           </div>
 
           <form id="setupForm" novalidate>
-            <label class="field-label" for="profileName">Instagram kullanıcı adın <small>(isteğe bağlı)</small></label>
+            <label class="field-label" for="profileName">Instagram kullanıcı adın</label>
             <div class="username-field">
               <span aria-hidden="true">@</span>
               <input
@@ -93,11 +93,21 @@
               >
               <span class="field-check" id="profileCheck" aria-hidden="true">✓</span>
             </div>
-            <p class="field-hint" id="profileHint">Arşiv içe aktarırken kullanıcı adını yaz. Android bağlantısında boş bırakırsan oturumdan okunur.</p>
+            <p class="field-hint" id="profileHint">Analiz edeceğin kendi hesabının kullanıcı adını yaz; giriş açılan Instagram ekranında yapılır.</p>
 
             <button class="archive-button" id="archiveButton" type="button">🗂️ Instagram ZIP / JSON arşivini seç</button>
             <input id="archiveInput" type="file" accept=".zip,.json,application/zip,application/json" multiple hidden>
             <p class="archive-hint">Instagram'dan takipçi ve takip edilen verilerini <strong>JSON</strong> olarak indir. ZIP dosyasını veya içindeki <code>followers_1.json</code> ve <code>following.json</code> dosyalarını seç. İşlem cihazında yapılır.</p>
+
+            <div class="scan-tempo" id="scanTempoPanel" hidden>
+              <label for="scanTempoSelect">Instagram tarama temposu</label>
+              <select id="scanTempoSelect">
+                <option value="slow">Temkinli · 2–3 sn</option>
+                <option value="original">İlk sürüm · 1,1–2 sn</option>
+                <option value="steady">Bir kademe hızlı · 0,9–1,5 sn</option>
+              </select>
+              <small>Sayfalar sırayla alınır; yeni tarama yalnızca sen başlatınca çalışır. Hız otomatik artırılmaz.</small>
+            </div>
 
             <button class="instagram-connect" id="instagramConnectButton" type="button" disabled>
               <span class="instagram-connect__icon" aria-hidden="true">
@@ -128,6 +138,7 @@
                 <span><i>↑</i><strong id="liveFollowingCount">0</strong> takip edilen</span>
                 <button id="cancelCollectorButton" type="button">Durdur</button>
               </div>
+              <button class="archive-button" id="desktopScanButton" type="button" hidden disabled>Listeleri tara</button>
             </div>
 
             <p class="form-error" id="setupError" role="alert" hidden></p>
@@ -136,7 +147,7 @@
 
           <div class="privacy-strip">
             <span aria-hidden="true">🛡️</span>
-            <p><strong>Şifren uygulamaya girmez.</strong> Arşiv analizi PC veya telefonda yerel çalışır; Android bağlantısında giriş yalnızca instagram.com ekranındadır.</p>
+            <p><strong>Şifren uygulama arayüzüne girmez.</strong> Giriş açılan gerçek instagram.com ekranındadır; PC bağlantısı normal tarayıcı kullanır.</p>
           </div>
         </section>
       </div>
@@ -263,6 +274,15 @@
         </header>
 
         <main class="dashboard-main">
+          <div class="scan-tempo dashboard-scan-tempo" id="dashboardScanTempoPanel" hidden>
+            <label for="dashboardScanTempoSelect">Bir sonraki taramanın temposu</label>
+            <select id="dashboardScanTempoSelect">
+              <option value="slow">Temkinli · 2–3 sn</option>
+              <option value="original">İlk sürüm · 1,1–2 sn</option>
+              <option value="steady">Bir kademe hızlı · 0,9–1,5 sn</option>
+            </select>
+            <small>Otomatik tarama ve takip bildirimi yok. Liste sayaçları ayrıca sen isteyince yüklenir.</small>
+          </div>
           <section class="overview-panel" id="overviewPanel">
             <div class="welcome-row">
               <div>
@@ -369,6 +389,7 @@
               <div class="list-tools">
                 <span class="result-count"><strong id="visibleResultCount">0</strong> hesap</span>
                 <span class="detail-status" id="listDetailStatus" hidden>Bilgiler hazırlanıyor</span>
+                <button class="filter-trigger" id="loadAccountDetailsButton" type="button" hidden>Hesap bilgilerini yükle</button>
                 <button class="filter-trigger" id="openFilterButton" type="button">
                   Filtre <b id="activeFilterCount">0</b>
                 </button>
@@ -544,10 +565,11 @@
 
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
-  <script src="vendor/fflate.js?v=15"></script>
-  <script src="logic.js?v=15"></script>
-  <script src="archive.js?v=15"></script>
-  <script src="storage.js?v=15"></script>
-  <script src="app.js?v=15"></script>
+  <script src="vendor/fflate.js?v=16"></script>
+  <script src="logic.js?v=16"></script>
+  <script src="archive.js?v=16"></script>
+  <script src="storage.js?v=16"></script>
+  <script src="desktop.js?v=17"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

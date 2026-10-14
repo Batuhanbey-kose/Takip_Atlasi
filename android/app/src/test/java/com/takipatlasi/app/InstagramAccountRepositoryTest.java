@@ -9,11 +9,11 @@ import org.junit.Test;
 public class InstagramAccountRepositoryTest {
 
     @Test
-    public void metadataDelayRemainsFastButRateLimited() {
+    public void metadataRequestsUseTheConservativeDelay() {
         for (int index = 0; index < 100; index += 1) {
             long delay = InstagramAccountRepository.nextMetadataDelayMillis();
-            assertTrue(delay >= 100);
-            assertTrue(delay <= 250);
+            assertTrue(delay >= 2000);
+            assertTrue(delay <= 3000);
         }
     }
 

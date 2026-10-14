@@ -27,6 +27,10 @@ En güncel imzalı APK için yukarıdaki **Tek Tıkla İndir** düğmesini kulla
 Android ilk kurulumda, APK'yı açtığın uygulamaya **Bilinmeyen uygulamaları yükleme** izni vermeni isteyebilir. Yeni sürümler aynı imzayla üretildiği için APK'yı mevcut kurulumun üzerine yükleyerek verilerini koruyabilirsin.
 
 **PC'de kullanmak için:** Kaynak kodu indir, Node.js 22 kur ve proje klasöründe `npm ci` ardından `npm start` çalıştır. `http://127.0.0.1:4173` adresini tarayıcıda aç. Yerel sunucu yalnızca bu bilgisayardan erişilir; Instagram parolası istemez ve verini başka bir sunucuya yüklemez.
+**Kurulumsuz Windows paketi:** GitHub Release'teki `Takip-Atlasi-PC.zip` dosyasının tamamını bir klasöre çıkartıp `Takip-Atlasi-PC.bat` dosyasına çift tıkla. Node/npm kurulumu gerekmez; Windows 10/11 x64 ve Edge veya Chrome gerekir.
+PC'de **Instagram'a bağlan (PC)** düğmesi normal Edge/Chrome penceresi açar. Girişi gerçek Instagram sayfasında tamamla, ardından Takip Atlası sayfasındaki **Listeleri tara** düğmesine bas. PC ve Android aynı liste toplayıcı kodunu kullanır; tarayıcı oturumları ayrı olduğundan iki platform ayrıca doğrulanmalıdır. Instagram 429 döndürürse PC taraması da durur ve yerel bekleme süresini korur.
+PC bağlantısı hesap toplamlarını Instagram'ın güncel web profil yanıtından doğrular, web oturumunun istek başlıklarını kullanır ve 12 hesaplık sayfaları sırayla okur. Eski `accounts/current_user` sorgusunun ana sayfaya yönlendirmesini hesap bilgisi olarak kabul etmez. Profil sayaçları ile listede erişilebilen benzersiz hesap sayısı küçük farklılıklar gösterebilir.
+PC kartlarında profil fotoğrafları çerez gönderilmeden CDN'den alınır ve yerel sunucuda önbelleğe konur. **Hesap bilgilerini yükle** düğmesi, görünür hesaplardan başlayarak listedeki takipçi/takip edilen/gönderi sayılarını tek tek hazırlar. Sonuçlar önbelleğe alınır; yüklemeyi durdurabilir, daha sonra devam edebilirsin. Örnek moddaki hesaplar gerçek Instagram sorgusuna gönderilmez.
 
 > [!NOTE]
 > **Play Protect indirmeyi veya kurulumu bekletirse:** Takip Atlası Google Play'de yayımlanmadığı için bazı cihazlar APK'yı `İndiriliyor...` ekranında tutabilir ya da bilinmeyen uygulama uyarısı gösterebilir. Önce sunulan **Yine de yükle** seçeneğini kullan. Bu seçenek yoksa:
@@ -51,12 +55,15 @@ Android ilk kurulumda, APK'yı açtığın uygulamaya **Bilinmeyen uygulamaları
 
 **PC ve Android'de güvenilir arşiv yolu:** Instagram'da **Hesaplar Merkezi → Bilgilerin ve izinlerin → Bilgilerini indir** yolundan yalnızca **Takipçiler ve takip edilenler** verisini **JSON** biçiminde iste. İndirilen ZIP'i açmadan uygulamada **Instagram ZIP / JSON arşivini seç** düğmesine bas; istersen ZIP'ten çıkardığın `followers_1.json` ve `following.json` dosyalarını birlikte seç. Kullanıcı adını profil alanına yaz. Dosya yalnızca cihazında açılır; iki liste eksikse veri kaydedilmez. Instagram arşivi güncel olmayabilir; değişim analizi yalnızca içe aktardığın kayıtların farkını gösterir.
 
-**Android'de doğrudan bağlantı:** **Instagram'a bağlan** düğmesine bas, veri kullanım açıklamasını onayla ve açılan gerçek `instagram.com` ekranında girişini tamamla. Instagram'ın resmi olmayan API'si istekleri reddederse ZIP/JSON arşivi yolunu kullan.
+**Android'de doğrudan bağlantı:** **Instagram'a bağlan** düğmesine bas, veri kullanım açıklamasını onayla ve açılan gerçek `instagram.com` ekranında girişini tamamla. Hesabın açılınca **Listeleri tara** düğmesine bas. Instagram'ın resmi olmayan API'si istekleri reddederse ZIP/JSON arşivi yolunu kullan.
 
 Instagram kullanıcı adın otomatik okunamazsa başlangıç ekranındaki profil alanına yazıp tekrar dene. Uygulama adı yalnızca açık oturumun hesap kimliğiyle eşleşirse kabul eder; yeşil tik tek başına hesap doğrulaması değildir.
 Hesap sorguları Instagram tarafından reddedilirse uygulama hangi sorguda hangi HTTP yanıtını aldığını gösterir. Bu hata kodları oturum çerezlerini veya hesap kimliğini içermez.
+**HTTP 429** alınırsa tarama ve takip hesabı bilgisi istekleri durur; Instagram'ın `Retry-After` süresi, belirtilmediyse 15 dakikalık yerel bekleme uygulanır. Bekleme bittikten sonra da Instagram erişimi reddedebilir; süre bir başarı garantisi değildir. **HTTP 400** tek başına hatanın sebebini açıklamaz; tanınan istemci uyumsuzluğu veya giriş doğrulama yanıtları ayrıca belirtilir.
 
-Takibi bırakanları ve yeni takipçileri görebilmek için farklı zamanlarda en az iki tarama gerekir. Sayaç tabanlı sıralama seçildiğinde ilgili listedeki bütün hesap bilgileri kontrollü paralel isteklerle hazırlanır.
+Takibi bırakanları ve yeni takipçileri görebilmek için farklı zamanlarda en az iki tarama gerekir. Takip taraması ve hesap sayaçları otomatik çalışmaz; bildirim veya periyodik arka plan kontrolü yoktur. Sayaçlar için listedeki **Hesap bilgilerini yükle** düğmesine bas. Web profil bilgileri tek tek, aralarında yaklaşık 1,5–2,2 saniye bekleyerek hazırlanır ve önbelleğe alınır. Yüzlerce hesabın tamamını hazırlamak zaman alır; görünenler önceliklidir, yükleme durdurulabilir. Sayaç tabanlı sıralama ve filtrelerde eksik bilgiler olabileceği gösterilir.
+
+**Tarama temposu:** Varsayılan **Temkinli** seçeneğinde her Instagram isteğinden önce 2–3 saniye beklenir; sayfa başına 50 hesap istenir. Açılır menüden **İlk sürüm** (1,1–2 saniye) veya **Bir kademe hızlı** (0,9–1,5 saniye) seçebilirsin. İlk sürüm temposunda sorunsuz tarama doğrulanmadan daha hızlı seçeneğe geçme. Tempo otomatik yükseltilmez; hiçbir seçenek Instagram'ın hız sınırına takılmayacağı garantisini vermez.
 
 ## Gizlilik
 

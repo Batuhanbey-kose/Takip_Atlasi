@@ -30,6 +30,7 @@ jobs:
       - run: npm run desktop:smoke
         env:
           CHROME_PATH: /usr/bin/google-chrome
+      - run: npm run package:pc
       - run: npm run android:sync
       - run: chmod +x android/gradlew
       - name: Restore release signing key
@@ -55,3 +56,5 @@ jobs:
           files: |
             Takip-Atlasi.apk
             Takip-Atlasi.apk.sha256
+            dist/Takip-Atlasi-PC.zip
+            dist/Takip-Atlasi-PC.zip.sha256

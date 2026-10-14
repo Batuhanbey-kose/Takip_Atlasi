@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.0 - 2026-10-13
+
+- Add direct PC Instagram collection using a visible Edge/Chrome session and the shared Android collector, with a manual scan button and localhost-only bridge.
+- Seed PC scans from a session-matching web profile response and reuse the website's authentication headers instead of unsupported legacy account-info calls.
+- Add cookie-free PC photo caching and session-backed web-profile counters, with visible-first loading, caching, progress and a stop control.
+- Prepare Android scans from observed, session-matching web profile data and keep the web session for manual profile counter queries.
+- Publish a Windows x64 PC ZIP with a BAT launcher and checksum-verified bundled Node runtime.
+- Stop immediately on Instagram rate limits or invalid-session responses instead of retrying or reporting a missing username.
+- Respect Retry-After and persist a shared Android request cooldown across restarts and metadata requests.
+- Require a user-started scan after login completes; exclude one-tap, two-factor and checkpoint pages from page readiness.
+- Distinguish unsupported-client responses without exposing raw Instagram error messages.
+- Use 50-account pages with a 2–3 second default gap between all Instagram scan requests; offer explicit original/steady tempo choices without automatic speed increases.
+- Load account counters only on user request, with one worker and a 2–3 second delay; stop enrichment when starting a scan, navigating away or backgrounding the app.
+
 ## 1.3.0 - 2026-10-12
 
 - Add a PC localhost interface and the same offline Instagram JSON/ZIP archive import to both PC and Android.

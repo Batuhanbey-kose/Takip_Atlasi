@@ -74,6 +74,15 @@ test("PC yerel sunucusu arayüzü ve ZIP çözücüyü sunar", async () => {
     assert.equal(vendor.status, 200);
     assert.match(await vendor.text(), /unzipSync/);
     assert.equal((await fetch(`${base}/package.json`)).status, 404);
+    const blocked = await fetch(`${base}/api/instagram/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://outside.example" },
+      body: JSON.stringify({ username: "owner" }),
+    });
+    assert.equal(blocked.status, 403);
+    const health = await fetch(`${base}/api/instagram/health`);
+    assert.equal(health.status, 200);
+    assert.equal(typeof (await health.json()).available, "boolean");
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
