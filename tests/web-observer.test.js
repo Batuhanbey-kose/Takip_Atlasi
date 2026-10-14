@@ -51,3 +51,15 @@ test("Android web gözlemcisi doğru profil ve sorgu şablonunu normal web yanı
   assert.equal(result.records[0].username, "alpha");
   assert.equal(result.records[0].postCount, 5);
 });
+
+test("Takipçi odaklı Android sorgusu diğer sayaçlar yokken profil sayısını kabul eder", async () => {
+  const state = observer(async () => {
+    const payload = { data: { user: { id: "123", username: "alpha", follower_count: 27 } } };
+    return { status: 200, type: "basic", headers: new Headers(), json: async () => payload };
+  });
+  state.window.__TAKIP_WEB_OBSERVER__.template = { endpoint: "/api/graphql", body: "variables=%7B%22id%22%3A%22999%22%7D", variables: { id: "999" }, identities: [{ path: ["id"], kind: "id" }], headers: {} };
+  await state.window.__TAKIP_WEB_OBSERVER__.queryMetadata(9, [{ username: "alpha", instagramUserId: "123" }], 0, true);
+  const result = state.messages.find((message) => message.type === "metadata-result");
+  assert.equal(result.records[0].followerCount, 27);
+  assert.equal(result.records[0].postCount, null);
+});

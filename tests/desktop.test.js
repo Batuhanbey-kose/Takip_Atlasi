@@ -8,6 +8,9 @@ test("Profil sayaçları yalnızca istenen hesaba ait web yanıtından alınır"
   assert.equal(findProfile(data, "alpha", "123").postCount, 0);
   assert.equal(findProfile(data, "alpha", "456"), null);
   assert.equal(findProfile(data, "other", "123"), null);
+  const followerData = { data: { user: { username: "alpha", id: "123", follower_count: 0 } } };
+  assert.equal(findProfile(followerData, "alpha", "123"), null);
+  assert.equal(findProfile(followerData, "alpha", "123", true).followerCount, 0);
   const vars = { username: "owner", options: { render_surface: "PROFILE" } };
   const updated = replaceIdentity(vars, [{ path: ["username"], kind: "username" }], { username: "alpha" });
   assert.equal(updated.username, "alpha");

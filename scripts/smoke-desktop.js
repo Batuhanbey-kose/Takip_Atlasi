@@ -39,6 +39,9 @@ async function main() {
     assert.equal(await page.locator('[data-count="following"]').first().innerText(), "2");
     await page.locator('[data-category="notFollowingBack"]').first().click();
     assert.match(await page.locator("#peopleGrid").innerText(), /@carol/);
+    assert.match(await page.locator("#peopleGrid").innerText(), /Seni takip etmiyor/);
+    assert.doesNotMatch(await page.locator("#peopleGrid").innerText(), /gönderi|Tek yönlü|Tarih bilgisi yok/);
+    assert.equal(await page.locator("#peopleGrid .person-card__meta").count(), 0);
     await page.reload();
     await page.locator("#dashboardView").waitFor({ state: "visible", timeout: 15000 });
     assert.equal(await page.locator("#sidebarProfileName").innerText(), "@test.owner");
@@ -61,9 +64,10 @@ async function main() {
           error.data = { retryAfterMs: 900000 };
           throw error;
         },
-        requestMetadata: async ({ records }) => {
+        requestMetadata: async ({ records, followerOnly }) => {
           localStorage.setItem("mock-metadata-count", String(Number(localStorage.getItem("mock-metadata-count") || 0) + 1));
-          return { records: records.map((record) => ({ ...record, followerCount: 2, followingCount: 3, postCount: 4 })) };
+          localStorage.setItem("mock-follower-only", String(Boolean(followerOnly)));
+          return { records: records.map((record) => followerOnly ? { ...record, followerCount: 2 } : { ...record, followerCount: 2, followingCount: 3, postCount: 4 }) };
         },
         cancelEnrichment: async () => {},
         clearResult: async () => {},
@@ -92,6 +96,22 @@ async function main() {
     await nativePage.locator("#loadAccountDetailsButton").click();
     await nativePage.waitForFunction(() => document.querySelector("#loadAccountDetailsButton").hidden);
     assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-metadata-count")), "1");
+    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-follower-only")), "true");
+    assert.match(await nativePage.locator("#peopleGrid").innerText(), /2 takipçi/);
+    assert.doesNotMatch(await nativePage.locator("#peopleGrid").innerText(), /gönderi|Tek yönlü/);
+    await nativePage.locator("#openFilterButton").click();
+    assert.equal(await nativePage.locator("#relationshipFilter").isVisible(), false);
+    assert.equal(await nativePage.locator("#detailsFilter").isVisible(), false);
+    assert.equal(await nativePage.locator("#photoFilter").isVisible(), false);
+    await nativePage.locator("#minFollowersFilter").fill("3");
+    await nativePage.locator("#applyFiltersButton").click();
+    assert.equal(await nativePage.locator("#peopleGrid .person-card").count(), 0);
+    await nativePage.locator("#clearSearchButton").click();
+    assert.equal(await nativePage.locator("#peopleGrid .person-card").count(), 1);
+    await nativePage.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await nativePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+    assert.ok((await nativePage.locator("#peopleGrid .person-card").first().boundingBox()).height < 130);
+    await nativePage.setViewportSize({ width: 1280, height: 720 });
     await nativePage.locator('[data-category="following"]').first().click();
     assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-metadata-count")), "1");
     await nativePage.locator("#dashboardScanTempoSelect").selectOption("steady");

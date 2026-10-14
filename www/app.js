@@ -237,6 +237,8 @@
       "openFilterButton",
       "activeFilterCount",
       "filterDialog",
+      "filterTitle",
+      "filterHint",
       "relationshipFilter",
       "detailsFilter",
       "audienceFilter",
@@ -1105,6 +1107,19 @@
     stopNativeMetadata();
     state.category = category;
     state.limit = PAGE_SIZE;
+    const simpleList = category === "notFollowingBack";
+    const simpleSorts = ["az", "za", "followers-desc", "followers-asc"];
+    Array.from(elements.sortSelect.options).forEach((option) => {
+      option.hidden = simpleList && !simpleSorts.includes(option.value);
+      option.disabled = option.hidden;
+    });
+    if (simpleList) {
+      state.filters.relationship = "all";
+      state.filters.details = "all";
+      state.filters.photo = "all";
+      if (!simpleSorts.includes(state.sort)) state.sort = "az";
+    }
+    elements.sortSelect.value = state.sort;
 
     if (category === "overview" && state.search) {
       state.search = "";
@@ -1150,7 +1165,7 @@
     elements.visibleResultCount.textContent = formatNumber(filtered.length);
     renderActiveFilters(query);
     elements.peopleGrid.innerHTML = visible
-      .map((person, index) => personCardMarkup(person, index))
+      .map((person, index) => personCardMarkup(person, index, !skipMetadataRequest))
       .join("");
 
     const isEmpty = !filtered.length;
@@ -1161,6 +1176,11 @@
       elements.emptyText.textContent = hasFilters
         ? "Aramayı veya gelişmiş filtreleri temizleyip tekrar dene."
         : emptyCategoryMessage(state.category);
+      if (state.category === "notFollowingBack" && followerFilterActive() &&
+        queryMatches.some((person) => !Number.isFinite(personDetails(person).followerCount))) {
+        elements.emptyTitle.textContent = "Takipçi sayıları bekleniyor";
+        elements.emptyText.textContent = "Profil sayaçları geldikçe filtre sonuçları burada güncellenecek.";
+      }
     }
 
     const remaining = Math.max(0, filtered.length - visible.length);
@@ -1184,6 +1204,7 @@
 
   function hasCompleteDetails(person) {
     const details = personDetails(person);
+    if (state.category === "notFollowingBack") return Number.isFinite(details.followerCount);
     return [details.followerCount, details.followingCount, details.postCount].every(
       (value) => Number.isFinite(value),
     );
@@ -1348,21 +1369,22 @@
     elements.activeFilterText.textContent = labels.join(" · ");
   }
 
-  function personCardMarkup(person, index) {
+  function personCardMarkup(person, index, animate = true) {
     const badges = statusBadges(person);
     const safeUsername = escapeHtml(person.username);
     const delay = Math.min(index, 14) * 32;
     const profileUrl = `https://www.instagram.com/${encodeURIComponent(person.username)}/`;
+    const compact = state.category === "notFollowingBack";
 
     return `
-      <article class="person-card" style="--delay: ${delay}ms" data-person-username="${safeUsername}">
+      <article class="person-card${compact ? " person-card--compact" : ""}${animate ? "" : " is-enriched"}" style="--delay: ${delay}ms" data-person-username="${safeUsername}">
         ${avatarMarkup(person.username, person.profilePicUrl)}
         <div class="person-card__content">
           <strong>@${safeUsername}</strong>
-          <div class="person-card__meta">
+          ${compact ? "" : `<div class="person-card__meta">
             <span>${relationshipMoment(person)}</span><i></i><span>${relationshipLabel(person)}</span>
-          </div>
-          ${accountStatsMarkup(person)}
+          </div>`}
+          ${compact ? followerStatsMarkup(person) : accountStatsMarkup(person)}
           <div class="status-badges">${badges}</div>
         </div>
         <a class="profile-link" href="${profileUrl}" target="_blank" rel="noreferrer" aria-label="@${safeUsername} profilini Instagram'da aç">↗</a>
@@ -1443,6 +1465,14 @@
     stopNativeMetadata();
     window.clearTimeout(state.metadataPollTimer);
     requestNativeProfilePhotos(people);
+  }
+
+  function followerStatsMarkup(person) {
+    if (state.profile && state.profile.isDemo) return '<div class="person-card__followers">Örnek hesap · canlı sayaç yok</div>';
+    const count = personDetails(person).followerCount;
+    return Number.isFinite(count)
+      ? `<div class="person-card__followers" title="${formatNumber(count)} takipçi"><b>${formatNumber(count)}</b> takipçi</div>`
+      : '<div class="person-card__followers is-pending">Takipçi sayısı bekleniyor</div>';
   }
 
   function stopNativeMetadata() {
@@ -1612,6 +1642,7 @@
           instagramUserId: person.instagramUserId || "",
         })),
         observedAt: state.currentSnapshot.importedAt,
+        followerOnly: state.category === "notFollowingBack",
       });
       if (snapshotId !== state.nativeEnrichmentSnapshotId || metadataGeneration !== state.metadataGeneration) {
         return;
@@ -1750,11 +1781,13 @@
     elements.loadAccountDetailsButton.hidden = !nativeCollector.available || !canLoadDetails || Boolean(state.profile && state.profile.isDemo) || complete;
     elements.loadAccountDetailsButton.disabled = collectorState.busy ||
       (!loading && Date.now() < Math.max(state.nativeMetadataRetryAt, nativeCollector.blockedUntil));
-    elements.loadAccountDetailsButton.textContent = loading ? "Bilgi yüklemeyi durdur" : `Hesap bilgilerini yükle (${people.length - detailsReady})`;
+    const followerOnly = state.category === "notFollowingBack";
+    elements.loadAccountDetailsButton.textContent = loading ? "Bilgi yüklemeyi durdur" :
+      `${followerOnly ? "Takipçi sayılarını yükle" : "Hesap bilgilerini yükle"} (${people.length - detailsReady})`;
     elements.listDetailStatus.classList.toggle("is-loading", loading);
     elements.listDetailStatus.hidden = complete && !state.nativeEnrichmentNotice;
     elements.listDetailStatus.textContent = state.nativeEnrichmentNotice || (loading
-      ? `${detailsReady}/${people.length} hesap bilgisi hazırlanıyor`
+      ? `${detailsReady}/${people.length} ${followerOnly ? "profil takipçi sayısı" : "hesap bilgisi"} hazırlanıyor`
       : metadataPending
         ? `${detailsReady}/${people.length} bilgi hazır · sayaçlar yalnızca istersen yüklenir`
         : `${detailsReady}/${people.length} bilgi hazır · kalanlar alınamadı`);
@@ -1857,6 +1890,13 @@
   }
 
   function openFilterDialog() {
+    const simpleList = state.category === "notFollowingBack";
+    [elements.relationshipFilter, elements.detailsFilter, elements.photoFilter].forEach((field) => {
+      field.closest("label").hidden = simpleList;
+    });
+    elements.filterDialog.classList.toggle("is-simple-filter", simpleList);
+    elements.filterTitle.textContent = simpleList ? "Takipçi sayısına göre filtrele" : "Hesapları filtrele";
+    elements.filterHint.textContent = simpleList ? "Kişilerin profilinde yazan takipçi sayısına göre bir aralık seç." : "İlişki durumunu ve hesap büyüklüğünü birlikte daralt.";
     elements.relationshipFilter.value = state.filters.relationship;
     elements.detailsFilter.value = state.filters.details;
     elements.audienceFilter.value = state.filters.audience;
@@ -1887,16 +1927,21 @@
       [minimum, maximum] = [maximum, minimum];
     }
     state.filters = {
-      relationship: elements.relationshipFilter.value,
-      details: elements.detailsFilter.value,
+      relationship: state.category === "notFollowingBack" ? "all" : elements.relationshipFilter.value,
+      details: state.category === "notFollowingBack" ? "all" : elements.detailsFilter.value,
       audience: elements.audienceFilter.value,
-      photo: elements.photoFilter.value,
+      photo: state.category === "notFollowingBack" ? "all" : elements.photoFilter.value,
       minFollowers: minimum,
       maxFollowers: maximum,
     };
     state.limit = PAGE_SIZE;
     elements.filterDialog.close();
     renderList();
+    if (state.category === "notFollowingBack" && followerFilterActive()) loadAccountMetadata();
+  }
+
+  function followerFilterActive() {
+    return state.filters.audience !== "all" || state.filters.minFollowers !== null || state.filters.maxFollowers !== null;
   }
 
   function parseFilterNumber(value) {

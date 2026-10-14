@@ -63,7 +63,7 @@ class DesktopCollector {
     return this._enrichment;
   }
 
-  requestMetadata(records) { return this.enrichment.requestMetadata(records); }
+  requestMetadata(records, followerOnly = false) { return this.enrichment.requestMetadata(records, followerOnly); }
   requestPhotos(records) { return this.enrichment.requestPhotos(records); }
   photo(key) { return this.enrichment.photo(key); }
   cancelEnrichment() { return this._enrichment ? this._enrichment.cancel() : Promise.resolve(); }

@@ -2470,6 +2470,15 @@ select:focus-visible,
   transform: rotate(-5deg);
 }
 
+.person-card.is-enriched { animation: none; }
+.person-card--compact { min-height: 100px; gap: 12px; }
+.person-card--compact .person-card__content > strong { font-size: 13px; }
+.person-card__followers { margin-top: 7px; color: var(--theme-soft-text); font-size: 12px; line-height: 1.35; }
+.person-card__followers b { color: var(--theme-text); font-size: 13px; }
+.person-card__followers.is-pending { font-size: 11px; }
+.person-card--compact .status-badge { font-size: 9px; padding: 5px 7px; text-transform: none; letter-spacing: 0; }
+.person-card--compact .profile-link { width: 38px; height: 38px; }
+
 .empty-state {
   padding: 75px 20px;
   border: 1px dashed rgba(23, 20, 45, 0.15);
@@ -3289,6 +3298,9 @@ html[data-theme-mode="dark"] .app-dialog {
 }
 
 @media (max-width: 700px) {
+  .onboarding__content { padding-top: 20px; }
+  .landing-header { height: 68px; }
+  .hero-copy { margin-bottom: 30px; }
   .theme-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3326,13 +3338,14 @@ html[data-theme-mode="dark"] .app-dialog {
   }
 
   .refresh-button {
-    width: 42px;
+    width: 44px;
+    min-height: 44px;
     padding: 0;
     justify-content: center;
   }
 
   .dashboard-main {
-    padding: 27px 18px calc(112px + env(safe-area-inset-bottom, 0px));
+    padding: 18px 14px calc(104px + env(safe-area-inset-bottom, 0px));
   }
 
   .mobile-bottom-nav {
@@ -3453,14 +3466,15 @@ html[data-theme-mode="dark"] .app-dialog {
 
   .list-tools {
     display: grid;
-    grid-template-columns: auto auto 1fr;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 9px;
     margin-top: 14px;
     justify-content: space-between;
   }
 
   .detail-status {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: 3;
     justify-content: center;
   }
 
@@ -3469,11 +3483,19 @@ html[data-theme-mode="dark"] .app-dialog {
   }
 
   .sort-field select {
-    max-width: 160px;
+    max-width: 100%;
+    min-height: 44px;
+    width: 100%;
   }
+
+  .list-tools .result-count { grid-column: 1; grid-row: 1; }
+  #openFilterButton { grid-column: 2; grid-row: 1; min-height: 44px; }
+  .list-tools .sort-field { grid-column: 3; grid-row: 1; }
+  #loadAccountDetailsButton { grid-column: 1 / -1; grid-row: 2; min-height: 44px; font-size: 12px; }
 
   .people-grid {
     grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .person-card {
@@ -3486,6 +3508,21 @@ html[data-theme-mode="dark"] .app-dialog {
     width: 52px;
     height: 52px;
   }
+
+  .person-card__content > strong { font-size: 13px; }
+  .account-stats, .account-stats b { font-size: 10px; line-height: 1.3; }
+  .status-badge { font-size: 9px; }
+  .person-card__meta { font-size: 9px; }
+  .person-card--compact { min-height: 94px; padding: 12px; border-radius: 16px; grid-template-columns: 48px minmax(0, 1fr) 44px; }
+  .person-card--compact .person-avatar { width: 48px; height: 48px; }
+  .person-card--compact .person-card__content > strong { font-size: 14px; }
+  .person-card--compact .person-card__followers { font-size: 12px; }
+  .person-card--compact .person-card__followers b { font-size: 13px; }
+  .person-card--compact .status-badge { font-size: 10px; }
+  .person-card--compact .profile-link { width: 44px; height: 44px; }
+  .search-box input { font-size: 14px; min-height: 42px; }
+  .is-simple-filter .filter-grid { max-height: none; }
+  .is-simple-filter .filter-actions button { min-height: 44px; }
 
   .app-dialog {
     padding: 31px 22px 24px;
@@ -3533,15 +3570,15 @@ html[data-theme-mode="dark"] .app-dialog {
   }
 
   .onboarding__content {
-    padding-top: 27px;
+    padding-top: 18px;
   }
 
   .hero-copy {
-    margin-bottom: 38px;
+    margin-bottom: 28px;
   }
 
   .hero-copy h1 {
-    font-size: 45px;
+    font-size: 39px;
   }
 
   .trust-row span {

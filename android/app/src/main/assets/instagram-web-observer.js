@@ -10,7 +10,7 @@
   const count = (value) => value !== null && value !== undefined && value !== "" && Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : null;
   const send = (type, payload) => window.TakipAtlasiNative?.postMessage(JSON.stringify({ type, ...payload }));
 
-  function profile(payload, name, id) {
+  function profile(payload, name, id, followerOnly = false) {
     let found = null;
     const walk = (value, depth) => {
       if (!value || typeof value !== "object" || depth > 16 || found) return;
@@ -18,7 +18,7 @@
       const candidateName = username(value.username);
       const followers = count(value.follower_count ?? value.edge_followed_by?.count);
       const following = count(value.following_count ?? value.edge_follow?.count);
-      if (candidateName && candidateId && (!name || candidateName === name) && (!id || candidateId === id) && followers !== null && following !== null) {
+      if (candidateName && candidateId && (!name || candidateName === name) && (!id || candidateId === id) && followers !== null && (followerOnly || following !== null)) {
         found = { username: candidateName, userId: candidateId, instagramUserId: candidateId,
           followerCount: followers, followingCount: following,
           postCount: count(value.media_count ?? value.edge_owner_to_timeline_media?.count),
@@ -116,7 +116,7 @@
   };
 
   api.cancelMetadata = () => { api.generation += 1; api.abort?.abort(); };
-  api.queryMetadata = async (requestId, records, blockedUntil) => {
+  api.queryMetadata = async (requestId, records, blockedUntil, followerOnly = false) => {
     const result = { records: [] };
     const generation = api.generation;
     try {
@@ -129,7 +129,8 @@
         if (!name) continue;
         const key = id || name;
         const cached = profileCache.get(key);
-        if (cached && cached.username === name && Date.now() - cached.updatedAt < 86400000) { result.records.push(cached); continue; }
+        if (cached && cached.username === name && Date.now() - cached.updatedAt < 86400000 &&
+          (followerOnly || cached.followingCount !== null && cached.postCount !== null)) { result.records.push(cached); continue; }
         const deadline = Date.now() + 1500 + Math.floor(Math.random() * 700);
         while (generation === api.generation && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
         if (generation !== api.generation) break;
@@ -150,8 +151,8 @@
         if ([401, 403].includes(response.status) || response.type === "opaqueredirect") { result.sessionRequired = true; break; }
         if (response.status === 400) { result.requestRejected = true; break; }
         const payload = await response.json().catch(() => null);
-        const details = profile(payload, name, id);
-        if (details && details.postCount !== null) { profileCache.set(key, details); result.records.push(details); }
+        const details = profile(payload, name, id, followerOnly);
+        if (details && (followerOnly || details.postCount !== null)) { profileCache.set(key, details); result.records.push(details); }
         else if (payload?.errors?.length) { result.profileError = true; break; }
       }
     } catch (error) { if (generation === api.generation) result.connectionFailed = true; }

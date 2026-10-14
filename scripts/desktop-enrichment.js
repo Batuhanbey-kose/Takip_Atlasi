@@ -14,7 +14,7 @@ function allowedPhoto(value) {
   } catch (error) { return false; }
 }
 
-function findProfile(payload, username, userId) {
+function findProfile(payload, username, userId, followerOnly = false) {
   let profile = null;
   const walk = (value, depth) => {
     if (!value || typeof value !== "object" || depth > 16 || profile) return;
@@ -24,7 +24,7 @@ function findProfile(payload, username, userId) {
       const followerCount = logic.normalizeAccountCount(value.follower_count ?? value.edge_followed_by?.count);
       const followingCount = logic.normalizeAccountCount(value.following_count ?? value.edge_follow?.count);
       const postCount = logic.normalizeAccountCount(value.media_count ?? value.edge_owner_to_timeline_media?.count);
-      if (followerCount !== null && followingCount !== null && postCount !== null) {
+      if (followerCount !== null && (followerOnly || followingCount !== null && postCount !== null)) {
         profile = { username: name, instagramUserId: id, followerCount, followingCount, postCount,
           profilePicUrl: logic.normalizeProfilePicUrl(value.profile_pic_url_hd || value.profile_pic_url), updatedAt: Date.now() };
       }
@@ -76,7 +76,7 @@ class DesktopEnrichment {
     }
   }
 
-  async profileTemplate(person) {
+  async profileTemplate(person, followerOnly = false) {
     if (this.template && this.page && !this.page.isClosed()) return this.template;
     const context = this.desktop.context;
     if (!context || !(await context.cookies(ORIGIN)).some((cookie) => cookie.name === "sessionid" && cookie.value)) {
@@ -112,7 +112,7 @@ class DesktopEnrichment {
           if (sent[name]) headers[name] = sent[name];
         }
         this.template = { endpoint: new URL(request.url()).pathname, body: params.toString(), variables, identities, headers };
-        const profile = findProfile(await response.json().catch(() => null), person.username, person.instagramUserId);
+        const profile = findProfile(await response.json().catch(() => null), person.username, person.instagramUserId, followerOnly);
         if (profile) this.metadata.set(person.instagramUserId || person.username, profile);
         return this.template;
       }
@@ -124,9 +124,11 @@ class DesktopEnrichment {
     throw new Error("Instagram profil sorgusu hazırlanamadı.");
   }
 
-  async requestMetadata(records) {
+  async requestMetadata(records, followerOnly = false) {
     if (this.busy) throw new Error("Profil bilgisi yüklemesi zaten sürüyor.");
     const results = [];
+    const complete = (profile) => profile && Number.isFinite(profile.followerCount) &&
+      (followerOnly || Number.isFinite(profile.followingCount) && Number.isFinite(profile.postCount));
     const generation = this.generation;
     const retryAfterMs = Math.max(0, this.desktop.blockedUntil - Date.now());
     if (retryAfterMs) return { records: results, retryAfterMs };
@@ -139,10 +141,10 @@ class DesktopEnrichment {
         if (!person.username) continue;
         const key = person.instagramUserId || person.username;
         let cached = this.metadata.get(key);
-        if (cached && cached.username === person.username && Date.now() - cached.updatedAt < 86400000) { results.push(cached); continue; }
-        const template = await this.profileTemplate(person);
+        if (complete(cached) && cached.username === person.username && Date.now() - cached.updatedAt < 86400000) { results.push(cached); continue; }
+        const template = await this.profileTemplate(person, followerOnly);
         cached = this.metadata.get(key);
-        if (cached && cached.username === person.username) { results.push(cached); continue; }
+        if (complete(cached) && cached.username === person.username) { results.push(cached); continue; }
         const deadline = Date.now() + 1500 + Math.floor(Math.random() * 700);
         while (Date.now() < deadline && generation === this.generation) await new Promise((resolve) => setTimeout(resolve, 100));
         if (generation !== this.generation) break;
@@ -166,7 +168,7 @@ class DesktopEnrichment {
         }
         if ([401, 403].includes(result.status)) return { records: results, sessionRequired: true };
         if (result.status === 400) return { records: results, requestRejected: true };
-        const profile = findProfile(result.payload, person.username, person.instagramUserId);
+        const profile = findProfile(result.payload, person.username, person.instagramUserId, followerOnly);
         if (profile) { this.metadata.set(key, profile); results.push(profile); }
         else if (Array.isArray(result.payload?.errors) && result.payload.errors.length) return { records: results, profileError: true };
       }

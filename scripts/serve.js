@@ -46,7 +46,7 @@ async function api(request, response, url) {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
       if (action === "start") return json(response, 200, desktop.start(body));
       if (action === "scan") return json(response, 200, await desktop.beginScan());
-      if (action === "metadata") return json(response, 200, await desktop.requestMetadata(body.records));
+      if (action === "metadata") return json(response, 200, await desktop.requestMetadata(body.records, body.followerOnly === true));
       if (action === "photos") return json(response, 200, await desktop.requestPhotos(body.records));
       if (action === "cancel-enrichment") { await desktop.cancelEnrichment(); return json(response, 200, {}); }
       if (action === "cancel") { await desktop.cancel(); return json(response, 200, {}); }

@@ -225,7 +225,7 @@ public class InstagramCollectorPlugin extends Plugin {
             };
             mainHandler.postDelayed(metadataTimeout, 90000);
             String script = "window.__TAKIP_WEB_OBSERVER__?.queryMetadata(" + requestId + "," + records.toString() + "," +
-                InstagramRequestGate.blockedUntil(getContext()) + ");";
+                InstagramRequestGate.blockedUntil(getContext()) + "," + Boolean.TRUE.equals(call.getBoolean("followerOnly", false)) + ");";
             sessionWebView.evaluateJavascript(script, null);
         });
     }

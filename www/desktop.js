@@ -36,7 +36,7 @@
     clearResult: () => request("clear-result", {}),
     cancel: () => request("cancel", {}),
     clearSession: () => request("clear-session", {}),
-    requestMetadata: ({ records }) => request("metadata", { records }),
+    requestMetadata: ({ records, followerOnly }) => request("metadata", { records, followerOnly }),
     requestProfilePhotos: ({ records }) => request("photos", { records }),
     cancelEnrichment: () => request("cancel-enrichment", {}),
   };

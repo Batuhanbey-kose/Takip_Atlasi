@@ -18,7 +18,7 @@
       document.documentElement.dataset.themeMode = "light";
     }
   </script>
-  <link rel="stylesheet" href="styles.css?v=16">
+  <link rel="stylesheet" href="styles.css?v=18">
 </head>
 <body>
   <div class="ambient" aria-hidden="true">
@@ -263,7 +263,7 @@
               <span></span>
               <div><small>Son yenileme</small><strong id="lastSyncText">Şimdi</strong></div>
             </div>
-            <button class="refresh-button" id="archiveRefreshButton" type="button"><span>Arşiv yükle</span></button>
+            <button class="refresh-button" id="archiveRefreshButton" type="button" aria-label="Arşiv yükle"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 7h7l2 2h9v11H3V7zm0 0V4h7l2 3h9v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Arşiv yükle</span></button>
             <button class="refresh-button" id="refreshButton" type="button">
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
                 <path d="M19 8a8 8 0 1 0 .4 7M19 8V3m0 5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -436,8 +436,8 @@
   <dialog class="app-dialog filter-dialog" id="filterDialog">
     <button class="dialog-close" type="button" data-close-dialog aria-label="Pencereyi kapat">×</button>
     <span class="step-label">AKILLI LİSTE</span>
-    <h2>Hesapları filtrele</h2>
-    <p class="dialog-lead">İlişki durumunu ve hesap büyüklüğünü birlikte daralt.</p>
+    <h2 id="filterTitle">Hesapları filtrele</h2>
+    <p class="dialog-lead" id="filterHint">İlişki durumunu ve hesap büyüklüğünü birlikte daralt.</p>
     <div class="filter-grid">
       <label>
         <span>İlişki</span>
@@ -569,7 +569,7 @@
   <script src="logic.js?v=16"></script>
   <script src="archive.js?v=16"></script>
   <script src="storage.js?v=16"></script>
-  <script src="desktop.js?v=17"></script>
-  <script src="app.js?v=16"></script>
+  <script src="desktop.js?v=18"></script>
+  <script src="app.js?v=18"></script>
 </body>
 </html>

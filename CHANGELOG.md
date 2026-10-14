@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.1 - 2026-10-14
+
+- Simplify the not-following-back cards to photo, username, follower count and the existing relationship badge.
+- Read profile follower counters without requiring post/following counters; never enumerate each person's followers just to obtain their count.
+- Reduce this category's filters and sorts to follower-oriented controls and improve mobile readability/touch targets.
+- Document the observed errors, fixes, methods and validation limits in historical release notes.
+
 ## 1.4.0 - 2026-10-13
 
 - Add direct PC Instagram collection using a visible Edge/Chrome session and the shared Android collector, with a manual scan button and localhost-only bridge.
