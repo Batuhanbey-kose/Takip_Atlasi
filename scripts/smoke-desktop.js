@@ -40,6 +40,7 @@ async function main() {
     await page.locator('[data-category="notFollowingBack"]').first().click();
     assert.match(await page.locator("#peopleGrid").innerText(), /@carol/);
     await page.reload();
+    await page.locator("#dashboardView").waitFor({ state: "visible", timeout: 15000 });
     assert.equal(await page.locator("#sidebarProfileName").innerText(), "@test.owner");
     assert.deepEqual(errors, []);
     console.log("PC ZIP içe aktarma, liste görünümü ve kalıcı kayıt başarılı.");
