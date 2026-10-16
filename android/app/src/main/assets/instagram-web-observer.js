@@ -115,6 +115,31 @@
     return sendRequest.call(this, body);
   };
 
+  // The shared scanner uses its own paced, cancellable request gate for these
+  // profile counters. No second UI action or follower-list enumeration is needed.
+  api.readProfile = async (record, request) => {
+    const name = username(record?.username);
+    const id = userId(record?.instagramUserId);
+    if (!name) return null;
+    const key = id || name;
+    const cached = profileCache.get(key);
+    if (cached && cached.username === name && Date.now() - cached.updatedAt < 900000) return cached;
+    const template = api.template;
+    if (!template || template.identities.some((identity) => identity.kind === "id" && !id)) return null;
+    const variables = JSON.parse(JSON.stringify(template.variables));
+    for (const identity of template.identities) {
+      let object = variables;
+      for (const part of identity.path.slice(0, -1)) object = object[part];
+      object[identity.path[identity.path.length - 1]] = identity.kind === "username" ? name : id;
+    }
+    const body = new URLSearchParams(template.body);
+    body.set("variables", JSON.stringify(variables));
+    const payload = await request(template.endpoint, { method: "POST", headers: template.headers, body: body.toString() });
+    const details = profile(payload, name, id, true);
+    if (details) profileCache.set(key, details);
+    return details;
+  };
+
   api.cancelMetadata = () => { api.generation += 1; api.abort?.abort(); };
   api.queryMetadata = async (requestId, records, blockedUntil, followerOnly = false) => {
     const result = { records: [] };

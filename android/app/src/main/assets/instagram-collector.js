@@ -17,15 +17,20 @@
   const MAX_PAGES = 300;
   const MAX_COUNT_DRIFT = 25;
   const scanTempos = {
-    slow: { minDelay: 2000, maxDelay: 3000 },
-    original: { minDelay: 1100, maxDelay: 2000 },
-    steady: { minDelay: 900, maxDelay: 1500 },
+    slow: { minDelay: 2000, maxDelay: 3000, pageSize: 25 },
+    original: { minDelay: 1100, maxDelay: 2000, pageSize: 50 },
+    steady: { minDelay: 600, maxDelay: 1000, pageSize: 50 },
+    fast: { minDelay: 350, maxDelay: 600, pageSize: 100 },
   };
-  const tempoName = ["slow", "original", "steady"].includes(window.__TAKIP_ATLASI_SCAN_TEMPO__)
-    ? window.__TAKIP_ATLASI_SCAN_TEMPO__ : "slow";
+  const tempoName = ["slow", "original", "steady", "fast"].includes(window.__TAKIP_ATLASI_SCAN_TEMPO__)
+    ? window.__TAKIP_ATLASI_SCAN_TEMPO__ : "steady";
   const scanTempo = scanTempos[tempoName];
-  const pageSize = [12, 25, 50].includes(window.__TAKIP_ATLASI_PAGE_SIZE__)
-    ? window.__TAKIP_ATLASI_PAGE_SIZE__ : 50;
+  const pageSize = [25, 50, 100].includes(window.__TAKIP_ATLASI_PAGE_SIZE__)
+    ? window.__TAKIP_ATLASI_PAGE_SIZE__ : scanTempo.pageSize;
+  const people = new Map();
+  const readyPeople = new Set();
+  const counterAttempts = new Set();
+  let counterQueriesAvailable = true;
   let requestedOnce = false;
   const requestedUsername = normalizeUsername(
     window.__TAKIP_ATLASI_REQUESTED_USERNAME__,
@@ -38,6 +43,9 @@
     progress: 16,
     followersCount: 0,
     followingCount: 0,
+    profilesReady: 0,
+    profilesTotal: 0,
+    pageSize,
   };
 
   function send(type, payload) {
@@ -176,7 +184,7 @@
     return error;
   }
 
-  async function instagramRequest(pathname) {
+  async function instagramRequest(pathname, options = {}) {
     ensureActive();
     if (requestedOnce) {
       await randomPause();
@@ -197,13 +205,19 @@
     if (csrfToken) {
       headers["X-CSRFToken"] = csrfToken;
     }
+    Object.entries(options.headers || {}).forEach(([name, value]) => {
+      const existing = Object.keys(headers).find((key) => key.toLowerCase() === name.toLowerCase());
+      headers[existing || name] = value;
+    });
     const controller = new AbortController();
+    window.__TAKIP_ATLASI_SCAN_ABORT__ = controller;
     const timeout = window.setTimeout(() => controller.abort(), 45000);
     try {
       let response;
       try {
         response = await fetch(pathname, {
-          method: "GET",
+          method: options.method || "GET",
+          body: options.body,
           credentials: "include",
           redirect: "manual",
           headers,
@@ -240,6 +254,7 @@
       return payload;
     } finally {
       window.clearTimeout(timeout);
+      if (window.__TAKIP_ATLASI_SCAN_ABORT__ === controller) window.__TAKIP_ATLASI_SCAN_ABORT__ = null;
     }
   }
 
@@ -432,6 +447,61 @@
     );
   }
 
+  function rememberPerson(person) {
+    const previous = people.get(person.username);
+    if (previous && previous.instagramUserId && person.instagramUserId && previous.instagramUserId !== person.instagramUserId) {
+      throw new Error("Instagram tarama sırasında bir hesabın kimliğini değiştirdi; tutarsız veri kaydedilmedi.");
+    }
+    const merged = { ...previous, ...person };
+    ["followerCount", "followingCount", "postCount"].forEach((key) => {
+      merged[key] = normalizeCount(person[key]) ?? normalizeCount(previous && previous[key]);
+    });
+    merged.instagramUserId = person.instagramUserId || previous?.instagramUserId || "";
+    merged.profilePicUrl = person.profilePicUrl || previous?.profilePicUrl || "";
+    people.set(person.username, merged);
+    if (normalizeCount(merged.followerCount) !== null) readyPeople.add(person.username);
+    return merged;
+  }
+
+  function counterStatus() {
+    return {
+      profilesReady: readyPeople.size,
+      profilesTotal: people.size,
+    };
+  }
+
+  function publishPage(relationship, users) {
+    for (let offset = 0; offset < users.length; offset += 100) {
+      send("page", { relationship, users: users.slice(offset, offset + 100) });
+    }
+  }
+
+  async function collectPageCounters(relationship, users) {
+    const observer = window.__TAKIP_WEB_OBSERVER__;
+    for (const person of users) {
+      ensureActive();
+      if (normalizeCount(person.followerCount) !== null || counterAttempts.has(person.username) ||
+        !counterQueriesAvailable || typeof observer?.readProfile !== "function") continue;
+      counterAttempts.add(person.username);
+      try {
+        const details = await observer.readProfile(person, instagramRequest);
+        ensureActive();
+        if (details && normalizeUsername(details.username) === person.username &&
+          (!person.instagramUserId || normalizeUserId(details.instagramUserId) === person.instagramUserId)) {
+          publishPage(relationship, [rememberPerson({ ...person, ...details })]);
+        }
+      } catch (error) {
+        if (["RATE_LIMITED", "SESSION_REQUIRED", "REQUEST_DENIED", "VERIFICATION_REQUIRED", "API_REDIRECT",
+          "UNSUPPORTED_CLIENT", "TIMEOUT", "NETWORK_ERROR", "CANCELLED"].includes(error.code)) throw error;
+        // An unavailable individual profile is not an incomplete relationship list.
+        // A rejected query template is not retried for every remaining account.
+        if (error.httpStatus !== 404) counterQueriesAvailable = false;
+      }
+      const counters = counterStatus();
+      update({ ...counters, message: `${latestStatus.followersCount} takipçi · ${latestStatus.followingCount} takip edilen · ${counters.profilesReady}/${counters.profilesTotal} profil sayacı hazır` });
+    }
+  }
+
   async function collectRelationship(account, relationship, followerTotal, expectedTotal) {
     const isFollowers = relationship === "followers";
     const label = isFollowers ? "takipçi" : "takip edilen";
@@ -453,9 +523,9 @@
         `/api/v1/friendships/${encodeURIComponent(account.userId)}/${relationship}/?${query.toString()}`,
       );
       const page = pageUsers(payload);
-      const users = page.records;
+      const users = page.records.map(rememberPerson);
       users.forEach((user) => usernames.add(user.username));
-      send("page", { relationship, users });
+      publishPage(relationship, users);
 
       const progress = Math.min(
         isFollowers ? 54 : 94,
@@ -467,6 +537,7 @@
         progress,
         followersCount: isFollowers ? usernames.size : followerTotal,
         followingCount: isFollowers ? 0 : usernames.size,
+        ...counterStatus(),
       });
 
       const nextId = nextPageId(payload);
@@ -485,6 +556,7 @@
             message: `Instagram ${missingCount} erişilemeyen ${label} hesabını listede göstermedi; ${usernames.size} hesapla devam ediliyor.`,
           });
         }
+        await collectPageCounters(relationship, users);
         return usernames.size;
       }
       if (!page.rawCount || !users.length) {
@@ -493,6 +565,7 @@
       if (seenPages.has(nextId)) {
         throw new Error("Instagram aynı liste sayfasını tekrarladı; eksik veri kaydedilmedi.");
       }
+      await collectPageCounters(relationship, users);
       seenPages.add(nextId);
       pageId = nextId;
     }
@@ -543,6 +616,7 @@
         progress: 97,
         followersCount,
         followingCount,
+        ...counterStatus(),
       });
       send("complete", {
         username: account.username,
@@ -550,6 +624,7 @@
         profilePicUrl: account.profilePicUrl,
         followersCount,
         followingCount,
+        ...counterStatus(),
       });
     } catch (error) {
       send("error", {

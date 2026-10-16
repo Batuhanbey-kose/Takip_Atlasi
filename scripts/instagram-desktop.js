@@ -10,6 +10,10 @@ const collectorPath = () => {
   const shared = path.join(__dirname, "../shared/instagram-collector.js");
   return fs.existsSync(shared) ? shared : path.join(__dirname, "../android/app/src/main/assets/instagram-collector.js");
 };
+const observerPath = () => {
+  const shared = path.join(__dirname, "../shared/instagram-web-observer.js");
+  return fs.existsSync(shared) ? shared : path.join(__dirname, "../android/app/src/main/assets/instagram-web-observer.js");
+};
 
 function browserPath() {
   return [process.env.CHROME_PATH,
@@ -102,7 +106,7 @@ class DesktopCollector {
       throw failure("INVALID_USERNAME", "Instagram kullanıcı adı geçersiz.");
     }
     this.cancelEnrichment();
-    this.tempo = ["slow", "original", "steady"].includes(options.tempo) ? options.tempo : "slow";
+    this.tempo = ["slow", "original", "steady", "fast"].includes(options.tempo) ? options.tempo : "steady";
     this.records.followers.clear();
     this.records.following.clear();
     this.summary = null;
@@ -122,6 +126,7 @@ class DesktopCollector {
     if (run !== this.run || !this.active) return;
     const previous = this.page;
     const page = await context.newPage();
+    await page.addInitScript({ path: observerPath() });
     this.page = page;
     if (previous && !previous.isClosed()) await previous.close().catch(() => {});
     await page.exposeBinding("__takipAtlasiPostMessage", ({ frame, page: sourcePage }, raw) => {
@@ -187,7 +192,6 @@ class DesktopCollector {
       `window.__TAKIP_ATLASI_SCAN_TEMPO__=${JSON.stringify(this.tempo)};\n` +
       `window.__TAKIP_ATLASI_VERIFIED_ACCOUNT__=${JSON.stringify(prepared.account)};\n` +
       `window.__TAKIP_ATLASI_WEBSITE_HEADERS__=${JSON.stringify(prepared.headers)};\n` +
-      "window.__TAKIP_ATLASI_PAGE_SIZE__=12;\n" +
       "window.TakipAtlasiNative={postMessage:raw=>window.__takipAtlasiPostMessage(raw)};\n";
     this.page.evaluate(bootstrap + fs.readFileSync(collectorPath(), "utf8")).catch(() => {
       if (this.scanning) this.fail("COLLECTOR_START_FAILED", "PC takip toplayıcısı başlatılamadı.");
@@ -227,7 +231,7 @@ class DesktopCollector {
         };
         walk(payload, 0);
       }
-      if (account && headers["X-ASBD-ID"]) return { account, headers };
+      if (account && headers["X-ASBD-ID"] && await this.page.evaluate(() => Boolean(window.__TAKIP_WEB_OBSERVER__?.template))) return { account, headers };
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     throw failure("WEB_PROFILE_FAILED", "Instagram web profil toplamları oturum kimliğiyle doğrulanamadı.");
@@ -241,6 +245,9 @@ class DesktopCollector {
     if (message.type === "progress") {
       this.state = { ...this.state, phase: message.phase, message: String(message.message || "").slice(0, 500),
         progress: Math.max(0, Math.min(100, Number(message.progress) || 0)),
+        profilesReady: Math.max(0, Number(message.profilesReady) || 0),
+        profilesTotal: Math.max(0, Number(message.profilesTotal) || 0),
+        pageSize: Number(message.pageSize) || 50,
         followersCount: this.records.followers.size, followingCount: this.records.following.size };
     } else if (message.type === "page") {
       if (!["followers", "following"].includes(message.relationship) || !Array.isArray(message.users) || message.users.length > 100) {
@@ -259,7 +266,8 @@ class DesktopCollector {
         this.fail("INCOMPLETE_RESULT", "PC takip listesi eksik veya hesap kimliği tutarsız; veri kaydedilmedi."); return;
       }
       this.summary = { username, profilePicUrl: logic.normalizeProfilePicUrl(message.profilePicUrl),
-        followersCount: this.records.followers.size, followingCount: this.records.following.size };
+        followersCount: this.records.followers.size, followingCount: this.records.following.size,
+        profilesReady: Math.max(0, Number(message.profilesReady) || 0), profilesTotal: Math.max(0, Number(message.profilesTotal) || 0) };
       this.active = false;
       this.scanning = false;
       clearTimeout(this.watchdog);
@@ -303,7 +311,7 @@ class DesktopCollector {
 
   async cancel() {
     if (this.page && !this.page.isClosed()) {
-      await this.page.evaluate(() => { window.__TAKIP_ATLASI_NATIVE_CANCELLED__ = true; }).catch(() => {});
+      await this.page.evaluate(() => { window.__TAKIP_ATLASI_NATIVE_CANCELLED__ = true; window.__TAKIP_ATLASI_SCAN_ABORT__?.abort(); }).catch(() => {});
     }
     this.fail("CANCELLED", "Tarama durduruldu.");
   }

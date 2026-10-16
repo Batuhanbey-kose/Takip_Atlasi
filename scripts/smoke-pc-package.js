@@ -1,11 +1,13 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const fs = require("node:fs");
 const { spawn } = require("node:child_process");
 
 async function main() {
   if (process.platform !== "win32") throw new Error("Portable Windows runtime smoke test requires Windows");
   const version = require("../package.json").version;
   const directory = path.resolve(__dirname, `../dist/Takip-Atlasi-PC-v${version}`);
+  assert.ok(fs.existsSync(path.join(directory, "shared/instagram-web-observer.js")), "Integrated scan profile observer must be bundled");
   const child = spawn(path.join(directory, "runtime/node.exe"), [path.join(directory, "scripts/serve.js")], {
     cwd: directory, windowsHide: true, stdio: "ignore", env: { ...process.env, PORT: "4174", ATLAS_OPEN_BROWSER: "0" },
   });

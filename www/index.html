@@ -9,16 +9,16 @@
   <script>
     try {
       const savedTheme = localStorage.getItem("takip-atlasi-theme") || "atlas";
-      const allowedThemes = ["atlas", "ocean", "forest", "sunset", "sakura", "lavender", "ice", "sand", "mono", "midnight", "neon", "cherry"];
+      const allowedThemes = ["atlas", "ocean", "forest", "sunset", "sakura", "lavender", "ice", "sand", "mono", "midnight", "neon", "cherry", "aurora", "amoled", "coffee", "cyber"];
       const theme = allowedThemes.includes(savedTheme) ? savedTheme : "atlas";
       document.documentElement.dataset.theme = theme;
-      document.documentElement.dataset.themeMode = ["midnight", "neon"].includes(theme) ? "dark" : "light";
+      document.documentElement.dataset.themeMode = ["midnight", "neon", "aurora", "amoled", "cyber"].includes(theme) ? "dark" : "light";
     } catch (error) {
       document.documentElement.dataset.theme = "atlas";
       document.documentElement.dataset.themeMode = "light";
     }
   </script>
-  <link rel="stylesheet" href="styles.css?v=18">
+  <link rel="stylesheet" href="styles.css?v=19">
 </head>
 <body>
   <div class="ambient" aria-hidden="true">
@@ -102,11 +102,11 @@
             <div class="scan-tempo" id="scanTempoPanel" hidden>
               <label for="scanTempoSelect">Instagram tarama temposu</label>
               <select id="scanTempoSelect">
-                <option value="slow">Temkinli · 2–3 sn</option>
-                <option value="original">İlk sürüm · 1,1–2 sn</option>
-                <option value="steady">Bir kademe hızlı · 0,9–1,5 sn</option>
+                <option value="steady">Dengeli · 50 hesap · 0,6–1 sn</option>
+                <option value="fast">Hızlı · 100 hesap · 0,35–0,6 sn</option>
+                <option value="slow">Temkinli · 25 hesap · 2–3 sn</option>
               </select>
-              <small>Sayfalar sırayla alınır; yeni tarama yalnızca sen başlatınca çalışır. Hız otomatik artırılmaz.</small>
+              <small>Profil takipçi sayıları aynı taramada hazırlanır. Sayfa boyutu isteğidir; Instagram daha az hesap döndürebilir.</small>
             </div>
 
             <button class="instagram-connect" id="instagramConnectButton" type="button" disabled>
@@ -133,6 +133,7 @@
                 <b id="collectorPercent">0%</b>
               </div>
               <div class="collector-track"><span id="collectorProgress"></span></div>
+              <p class="collector-details" id="collectorDetails"></p>
               <div class="collector-counts">
                 <span><i>↓</i><strong id="liveFollowersCount">0</strong> takipçi</span>
                 <span><i>↑</i><strong id="liveFollowingCount">0</strong> takip edilen</span>
@@ -223,6 +224,11 @@
             <span>Takibi Bırakanlar</span>
             <b data-count="lostFollowers">0</b>
           </button>
+          <button class="side-nav__item" type="button" data-category="favorites">
+            <span class="nav-icon nav-icon--new" aria-hidden="true">★</span>
+            <span>Yıldızlılar</span>
+            <b data-count="favorites">0</b>
+          </button>
         </nav>
 
         <div class="sidebar__footer">
@@ -273,15 +279,15 @@
           </div>
         </header>
 
-        <main class="dashboard-main">
+        <main class="dashboard-main" id="dashboardMain">
           <div class="scan-tempo dashboard-scan-tempo" id="dashboardScanTempoPanel" hidden>
             <label for="dashboardScanTempoSelect">Bir sonraki taramanın temposu</label>
             <select id="dashboardScanTempoSelect">
-              <option value="slow">Temkinli · 2–3 sn</option>
-              <option value="original">İlk sürüm · 1,1–2 sn</option>
-              <option value="steady">Bir kademe hızlı · 0,9–1,5 sn</option>
+              <option value="steady">Dengeli · 50 hesap · 0,6–1 sn</option>
+              <option value="fast">Hızlı · 100 hesap · 0,35–0,6 sn</option>
+              <option value="slow">Temkinli · 25 hesap · 2–3 sn</option>
             </select>
-            <small>Otomatik tarama ve takip bildirimi yok. Liste sayaçları ayrıca sen isteyince yüklenir.</small>
+            <small>Listeler ve profil takipçi sayıları birlikte alınır. 429 yanıtında tarama durur ve bekleme süresi korunur.</small>
           </div>
           <section class="overview-panel" id="overviewPanel">
             <div class="welcome-row">
@@ -389,7 +395,6 @@
               <div class="list-tools">
                 <span class="result-count"><strong id="visibleResultCount">0</strong> hesap</span>
                 <span class="detail-status" id="listDetailStatus" hidden>Bilgiler hazırlanıyor</span>
-                <button class="filter-trigger" id="loadAccountDetailsButton" type="button" hidden>Hesap bilgilerini yükle</button>
                 <button class="filter-trigger" id="openFilterButton" type="button">
                   Filtre <b id="activeFilterCount">0</b>
                 </button>
@@ -408,6 +413,11 @@
                   </select>
                 </label>
               </div>
+            </div>
+            <div class="list-actions">
+              <span>Listeni düzenle</span>
+              <button class="filter-trigger" id="densityButton" type="button" aria-pressed="true">Sık görünüm</button>
+              <button class="filter-trigger" id="copyListButton" type="button" title="Filtreye uyan bütün kullanıcı adlarını kopyala">Listeyi kopyala</button>
             </div>
             <div class="active-filter" id="activeFilter" hidden>
               <span>Arama: <strong id="activeFilterText"></strong></span>
@@ -491,6 +501,14 @@
     </div>
   </dialog>
 
+  <dialog class="app-dialog copy-dialog" id="copyDialog">
+    <button class="dialog-close" type="button" data-close-dialog aria-label="Pencereyi kapat">×</button>
+    <span class="step-label">LİSTEN HAZIR</span>
+    <h2>Kullanıcı adlarını kopyala</h2>
+    <p class="dialog-lead">Bu cihaz panoya doğrudan erişim vermedi. Seçili metni kopyalayabilirsin.</p>
+    <textarea id="copyText" rows="8" readonly aria-label="Filtrelenmiş kullanıcı adları" spellcheck="false"></textarea>
+  </dialog>
+
   <dialog class="app-dialog disclosure-dialog" id="dataDisclosureDialog">
     <span class="dialog-emoji" aria-hidden="true">🛡️</span>
     <span class="step-label">AÇIK VERİ ONAYI</span>
@@ -527,7 +545,7 @@
     <div class="dialog-topline"></div>
     <button class="dialog-close" type="button" data-close-dialog aria-label="Pencereyi kapat">×</button>
     <span class="dialog-emoji" aria-hidden="true">🎨</span>
-    <span class="step-label">12 ÖZEL GÖRÜNÜM</span>
+    <span class="step-label">16 ÖZEL GÖRÜNÜM</span>
     <h2>Atlasını renklendir</h2>
     <p class="dialog-lead">Ruh haline uygun görünümü seç. Tema seçimin bu cihazda hatırlanır.</p>
     <div class="theme-grid" role="list" aria-label="Tema seçenekleri">
@@ -543,6 +561,10 @@
       <button class="theme-option theme-option--midnight" type="button" data-theme-option="midnight" data-theme-name="Gece" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Gece <b>✓</b></strong><small>Koyu ve dingin</small></button>
       <button class="theme-option theme-option--neon" type="button" data-theme-option="neon" data-theme-name="Neon" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Neon <b>✓</b></strong><small>Gece ışıkları</small></button>
       <button class="theme-option theme-option--cherry" type="button" data-theme-option="cherry" data-theme-name="Vişne" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Vişne <b>✓</b></strong><small>Cesur ve şık</small></button>
+      <button class="theme-option theme-option--aurora" type="button" data-theme-option="aurora" data-theme-name="Aurora" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Aurora <b>✓</b></strong><small>Kuzey ışıkları</small></button>
+      <button class="theme-option theme-option--amoled" type="button" data-theme-option="amoled" data-theme-name="AMOLED" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>AMOLED <b>✓</b></strong><small>Gerçek siyah</small></button>
+      <button class="theme-option theme-option--coffee" type="button" data-theme-option="coffee" data-theme-name="Kahve" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Kahve <b>✓</b></strong><small>Sıcak ve sade</small></button>
+      <button class="theme-option theme-option--cyber" type="button" data-theme-option="cyber" data-theme-name="Siber" role="listitem"><span class="theme-preview"><i></i><i></i><i></i></span><strong>Siber <b>✓</b></strong><small>Elektrik mavisi</small></button>
     </div>
   </dialog>
 
@@ -569,7 +591,7 @@
   <script src="logic.js?v=16"></script>
   <script src="archive.js?v=16"></script>
   <script src="storage.js?v=16"></script>
-  <script src="desktop.js?v=18"></script>
-  <script src="app.js?v=18"></script>
+  <script src="desktop.js?v=19"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>

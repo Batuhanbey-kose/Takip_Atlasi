@@ -94,10 +94,12 @@ public class InstagramCollectorPlugin extends Plugin {
     private long pageFinishedAt;
     private boolean cancelled;
     private String requestedUsername = "";
-    private String scanTempo = "slow";
+    private String scanTempo = "steady";
     private String accountUsername = "";
     private String accountUserId = "";
     private String accountProfilePicUrl = "";
+    private int profileCountersReady;
+    private int profileCountersTotal;
 
     @Override
     public void load() {
@@ -108,8 +110,8 @@ public class InstagramCollectorPlugin extends Plugin {
     @PluginMethod
     public void collect(PluginCall call) {
         String username = normalizeUsername(call.getString("username", ""));
-        String requestedTempo = call.getString("tempo", "slow");
-        String tempo = "original".equals(requestedTempo) || "steady".equals(requestedTempo) ? requestedTempo : "slow";
+        String requestedTempo = call.getString("tempo", "steady");
+        String tempo = "original".equals(requestedTempo) || "slow".equals(requestedTempo) || "fast".equals(requestedTempo) ? requestedTempo : "steady";
         mainHandler.post(() -> startCollection(call, username, tempo));
     }
 
@@ -326,6 +328,8 @@ public class InstagramCollectorPlugin extends Plugin {
         accountUsername = "";
         accountUserId = "";
         accountProfilePicUrl = "";
+        profileCountersReady = 0;
+        profileCountersTotal = 0;
         collectorStarted = false;
         collectorPageLoading = true;
         loginReady = false;
@@ -618,7 +622,7 @@ public class InstagramCollectorPlugin extends Plugin {
                 ";window.__TAKIP_ATLASI_SESSION_USER_ID__=" + JSONObject.quote(sessionUserId()) +
                 ";window.__TAKIP_ATLASI_SCAN_TEMPO__=" + JSONObject.quote(scanTempo) +
                 ";window.__TAKIP_ATLASI_VERIFIED_ACCOUNT__=" + preparedWebAccount.toString() +
-                ";window.__TAKIP_ATLASI_WEBSITE_HEADERS__=window.__TAKIP_WEB_OBSERVER__.headers;window.__TAKIP_ATLASI_PAGE_SIZE__=12;\n" + script;
+                ";window.__TAKIP_ATLASI_WEBSITE_HEADERS__=window.__TAKIP_WEB_OBSERVER__.headers;\n" + script;
             collectorWebView.evaluateJavascript(bootstrap, null);
         } catch (IOException error) {
             finishWithError(getContext().getString(R.string.collector_script_error));
@@ -693,6 +697,8 @@ public class InstagramCollectorPlugin extends Plugin {
         int progress = clamp(message.optInt("progress", 0), 0, 100);
         int followersCount = Math.max(0, message.optInt("followersCount", 0));
         int followingCount = Math.max(0, message.optInt("followingCount", 0));
+        profileCountersReady = Math.max(0, message.optInt("profilesReady", 0));
+        profileCountersTotal = Math.max(0, message.optInt("profilesTotal", 0));
         updateNativeProgress(phase, text, progress, followersCount, followingCount);
     }
 
@@ -734,6 +740,10 @@ public class InstagramCollectorPlugin extends Plugin {
         String completedUsername = normalizeUsername(message.getString("username", ""));
         String completedUserId = normalizeUserId(message.getString("userId", ""));
         String completedProfilePic = normalizeProfilePicUrl(message.getString("profilePicUrl", ""));
+        if (!requestedUsername.equals(completedUsername) || !sessionUserId().equals(completedUserId) || completedUserId.isEmpty()) {
+            finishWithError(getContext().getString(R.string.collector_invalid_response));
+            return;
+        }
         if (!completedUsername.isEmpty()) {
             accountUsername = completedUsername;
         }
@@ -753,6 +763,10 @@ public class InstagramCollectorPlugin extends Plugin {
         synchronized (resultLock) {
             followersCount = followers.size();
             followingCount = following.size();
+            if (message.optInt("followersCount", -1) != followersCount || message.optInt("followingCount", -1) != followingCount) {
+                finishWithError(getContext().getString(R.string.collector_invalid_response));
+                return;
+            }
             followerResults = new ArrayList<>(followers.values());
             followingResults = new ArrayList<>(following.values());
         }
@@ -771,6 +785,8 @@ public class InstagramCollectorPlugin extends Plugin {
         summary.put("profilePicUrl", accountProfilePicUrl);
         summary.put("followersCount", followersCount);
         summary.put("followingCount", followingCount);
+        summary.put("profilesReady", Math.max(0, message.optInt("profilesReady", 0)));
+        summary.put("profilesTotal", Math.max(0, message.optInt("profilesTotal", 0)));
         CookieManager.getInstance().flush();
         PluginCall completedCall = activeCall;
         activeCall = null;
@@ -798,6 +814,9 @@ public class InstagramCollectorPlugin extends Plugin {
         status.put("progress", clamp(progress, 0, 100));
         status.put("followersCount", Math.max(0, followersCount));
         status.put("followingCount", Math.max(0, followingCount));
+        status.put("profilesReady", profileCountersReady);
+        status.put("profilesTotal", profileCountersTotal);
+        status.put("pageSize", "fast".equals(scanTempo) ? 100 : "slow".equals(scanTempo) ? 25 : 50);
         notifyListeners("progress", status);
     }
 
@@ -808,7 +827,7 @@ public class InstagramCollectorPlugin extends Plugin {
         }
         cancelled = true;
         if (collectorWebView != null && collectorStarted) {
-            collectorWebView.evaluateJavascript("window.__TAKIP_ATLASI_NATIVE_CANCELLED__=true;", null);
+            collectorWebView.evaluateJavascript("window.__TAKIP_ATLASI_NATIVE_CANCELLED__=true;window.__TAKIP_ATLASI_SCAN_ABORT__?.abort();", null);
         }
         PluginCall cancelledCall = activeCall;
         activeCall = null;

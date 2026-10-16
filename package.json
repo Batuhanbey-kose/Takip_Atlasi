@@ -1,6 +1,6 @@
 {
   "name": "takip-atlasi",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "private": true,
   "description": "PC ve Android için yerel Instagram takip analizi",
   "scripts": {

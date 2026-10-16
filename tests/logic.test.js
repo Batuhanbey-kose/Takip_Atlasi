@@ -25,6 +25,7 @@ async function runAndroidCollector(fetchImpl, options = {}) {
       __TAKIP_ATLASI_VERIFIED_ACCOUNT__: options.preparedAccount,
       __TAKIP_ATLASI_WEBSITE_HEADERS__: options.websiteHeaders,
       __TAKIP_ATLASI_PAGE_SIZE__: options.pageSize,
+      __TAKIP_WEB_OBSERVER__: options.observer,
       setTimeout: (callback, milliseconds) => {
         if (options.onTimer) {
           options.onTimer(milliseconds);
@@ -36,7 +37,7 @@ async function runAndroidCollector(fetchImpl, options = {}) {
         postMessage: (rawMessage) => {
           const message = JSON.parse(rawMessage);
           if (options.onMessage) {
-            options.onMessage(message);
+            options.onMessage(message, sandbox.window);
           }
           if (message.type === "complete" || message.type === "error") {
             resolve(message);
@@ -280,10 +281,10 @@ test("Android toplayıcı eksik sayaçları tamamlar ve sunucunun döndürdüğ�
   assert.ok(requests.some((request) => request.includes("max_id=next")));
 });
 
-test("Temkinli ve kullanıcı seçimiyle artan tempolar tüm tarama isteklerine uygulanır", async () => {
-  for (const [tempo, minimum, maximum] of [
-    [undefined, 2000, 3000], ["slow", 2000, 3000], ["original", 1100, 2000],
-    ["steady", 900, 1500], ["toString", 2000, 3000],
+test("Dengeli ve hızlı tempolar liste sayfalarına ve istek aralıklarına uygulanır", async () => {
+  for (const [tempo, minimum, maximum, size] of [
+    [undefined, 600, 1000, 50], ["slow", 2000, 3000, 25], ["original", 1100, 2000, 50],
+    ["steady", 600, 1000, 50], ["fast", 350, 600, 100], ["toString", 600, 1000, 50],
   ]) {
     const pauses = [];
     const requests = [];
@@ -304,7 +305,7 @@ test("Temkinli ve kullanıcı seçimiyle artan tempolar tüm tarama isteklerine 
     assert.equal(requests.length, 4);
     assert.equal(pauses.length, 3, "Hesap sorgusu ile iki liste arasındaki geçişler de beklemeli");
     assert.ok(pauses.every((duration) => duration >= minimum && duration <= maximum));
-    assert.ok(requests.filter((request) => request.includes("/friendships/")).every((request) => request.includes("count=50")));
+    assert.ok(requests.filter((request) => request.includes("/friendships/")).every((request) => request.includes(`count=${size}`)));
   }
 });
 
@@ -313,7 +314,7 @@ test("Doğrulanmış web profili eski hesap sorgularını atlar ve yalnızca izi
   const result = await runAndroidCollector(async (pathname, options) => {
     requests.push(pathname);
     assert.ok(pathname.includes("/friendships/999/"));
-    assert.ok(pathname.includes("count=12"));
+    assert.ok(pathname.includes("count=50"));
     assert.equal(options.headers["X-ASBD-ID"], "test-asbd");
     assert.equal(options.headers["X-IG-WWW-Claim"], "test-claim");
     assert.equal(options.headers.Cookie, undefined);
@@ -327,6 +328,112 @@ test("Doğrulanmış web profili eski hesap sorgularını atlar ve yalnızca izi
   });
   assert.equal(result.type, "complete");
   assert.equal(requests.length, 2);
+});
+
+function scanResponse(payload, status = 200) {
+  return { ok: status === 200, status, headers: { get: () => status === 429 ? "30" : null }, json: async () => payload };
+}
+
+async function integratedScan(followers, following, profileReply, options = {}) {
+  const messages = [];
+  const requests = [];
+  const result = await runAndroidCollector(async (pathname, request) => {
+    requests.push({ pathname, ...request });
+    if (pathname === "/api/graphql") return profileReply(request.body);
+    return scanResponse({ users: pathname.includes("/followers/") ? followers : following });
+  }, {
+    preparedAccount: { userId: "999", username: "owner", followerCount: followers.length, followingCount: following.length },
+    websiteHeaders: { "X-ASBD-ID": "site-asbd" },
+    observer: { readProfile: async (record, request) => (await request("/api/graphql", {
+      method: "POST", body: record.username, headers: { "x-asbd-id": "site-asbd", "x-csrftoken": "test-token" },
+    })).user },
+    ...options,
+    onMessage: (message, window) => { messages.push(message); options.onMessage?.(message, window); },
+  });
+  const records = (relationship) => new Map(messages.filter((message) => message.type === "page" && message.relationship === relationship)
+    .flatMap((message) => message.users).map((record) => [record.username, record]));
+  return { result, requests, messages, records };
+}
+
+test("Liste yanıtındaki takipçi sayıları ve sıfır değerleri aynı taramada ek sorgusuz korunur", async () => {
+  const scan = await integratedScan(
+    [{ username: "alpha", pk: "1", follower_count: 25 }, { username: "beta", pk: "2", follower_count: 0 }],
+    [{ username: "alpha", pk: "1" }],
+    () => { throw new Error("Liste sayacı varken profil isteği gönderilmemeli"); },
+  );
+  assert.equal(scan.result.type, "complete");
+  assert.equal(scan.requests.length, 2);
+  assert.equal(scan.records("following").get("alpha").followerCount, 25);
+  assert.equal(scan.records("followers").get("beta").followerCount, 0);
+  assert.equal(scan.result.profilesReady, 2);
+  assert.equal(scan.result.profilesTotal, 2);
+});
+
+test("Eksik profil sayaçları sayfalar arasında alınır; karşılıklı kişi tekrar sorgulanmaz", async () => {
+  const scan = await integratedScan(
+    [{ username: "alpha", pk: "1" }, { username: "beta", pk: "2" }], [{ username: "alpha", pk: "1" }],
+    (name) => scanResponse({ user: { username: name, instagramUserId: name === "alpha" ? "1" : "2", followerCount: name === "alpha" ? 42 : 0 } }),
+  );
+  assert.equal(scan.result.type, "complete");
+  assert.deepEqual(scan.requests.map((request) => request.pathname === "/api/graphql" ? request.body : /\/(followers|following)\//.exec(request.pathname)[1]),
+    ["followers", "alpha", "beta", "following"]);
+  assert.equal(scan.records("followers").get("alpha").followerCount, 42);
+  assert.equal(scan.records("following").get("alpha").followerCount, 42);
+  assert.equal(scan.result.profilesReady, 2);
+  for (const request of scan.requests) {
+    assert.equal(Object.keys(request.headers).filter((name) => name.toLowerCase() === "x-asbd-id").length, 1);
+  }
+});
+
+test("Tarama içindeki profil sorgusu 429 alırsa başka listeye veya profile geçilmez", async () => {
+  const scan = await integratedScan([{ username: "alpha", pk: "1" }, { username: "beta", pk: "2" }], [{ username: "alpha", pk: "1" }], () => scanResponse({}, 429));
+  assert.equal(scan.result.code, "RATE_LIMITED");
+  assert.equal(scan.result.retryAfterMs, 30000);
+  assert.equal(scan.requests.length, 2);
+  assert.ok(scan.messages.every((message) => message.type !== "complete"));
+});
+
+test("Erişilemeyen tek profil sıfır yapılmaz ve diğer profil sayaçlarını engellemez", async () => {
+  const scan = await integratedScan([{ username: "alpha", pk: "1" }, { username: "beta", pk: "2" }], [{ username: "alpha", pk: "1" }],
+    (name) => name === "alpha" ? scanResponse({}, 404) : scanResponse({ user: { username: name, instagramUserId: "2", followerCount: 19 } }));
+  assert.equal(scan.result.type, "complete");
+  assert.equal(scan.result.profilesReady, 1);
+  assert.equal(scan.records("followers").get("alpha").followerCount, null);
+  assert.equal(scan.records("following").get("alpha").followerCount, null);
+  assert.equal(scan.records("followers").get("beta").followerCount, 19);
+  assert.equal(scan.requests.filter((request) => request.body === "alpha").length, 1);
+});
+
+test("Başka kimliğin profil sayacı listeye eklenmez", async () => {
+  const scan = await integratedScan([{ username: "alpha", pk: "1" }], [],
+    () => scanResponse({ user: { username: "alpha", instagramUserId: "77", followerCount: 900 } }));
+  assert.equal(scan.result.type, "complete");
+  assert.equal(scan.result.profilesReady, 0);
+  assert.equal(scan.records("followers").get("alpha").followerCount, null);
+});
+
+test("Sayaç toplarken durdurma yeni profil isteğini ve tamamlandı mesajını engeller", async () => {
+  const scan = await integratedScan([{ username: "alpha", pk: "1" }, { username: "beta", pk: "2" }], [],
+    (name) => scanResponse({ user: { username: name, instagramUserId: "1", followerCount: 5 } }), {
+      onMessage: (message, window) => { if (message.type === "progress" && message.profilesReady === 1) window.__TAKIP_ATLASI_NATIVE_CANCELLED__ = true; },
+    });
+  assert.equal(scan.result.code, "CANCELLED");
+  assert.equal(scan.requests.length, 2);
+});
+
+test("100 hesap istenirken sunucunun küçük sayfaları eksiksiz birleştirilir", async () => {
+  const requests = [];
+  const result = await runAndroidCollector(async (pathname) => {
+    requests.push(pathname);
+    const offset = Number(new URL(pathname, "https://www.instagram.com").searchParams.get("max_id")) || 0;
+    const users = pathname.includes("/followers/") ? Array.from({ length: Math.min(12, 61 - offset) }, (_, index) => ({ username: `person.${offset + index}`, pk: String(offset + index + 1), follower_count: 0 })) : [];
+    return scanResponse({ users, ...(offset + users.length < 61 && users.length ? { next_max_id: String(offset + users.length) } : {}) });
+  }, { tempo: "fast", preparedAccount: { userId: "999", username: "owner", followerCount: 61, followingCount: 0 } });
+  assert.equal(result.type, "complete");
+  assert.equal(result.followersCount, 61);
+  assert.equal(result.profilesReady, 61);
+  assert.equal(requests.length, 7);
+  assert.ok(requests.every((request) => request.includes("count=100")));
 });
 
 test("API yönlendirmesi HTML veya kullanıcı adı hatası diye gizlenmez", async () => {

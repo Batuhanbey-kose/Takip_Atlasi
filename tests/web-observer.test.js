@@ -63,3 +63,41 @@ test("Takipçi odaklı Android sorgusu diğer sayaçlar yokken profil sayısın�
   assert.equal(result.records[0].followerCount, 27);
   assert.equal(result.records[0].postCount, null);
 });
+
+test("Tarama profil sorgusu ortak istek kapısını kullanır ve aynı sayacı tekrar istemez", async () => {
+  const state = observer(() => { throw new Error("Bağımsız fetch kullanılmamalı"); });
+  const api = state.window.__TAKIP_WEB_OBSERVER__;
+  api.template = { endpoint: "/api/graphql", body: "doc_id=profile", variables: { id: "999", options: { surface: "PROFILE" } }, identities: [{ path: ["id"], kind: "id" }], headers: { "x-asbd-id": "site" } };
+  let calls = 0;
+  const gate = async (endpoint, options) => {
+    calls += 1;
+    assert.equal(endpoint, "/api/graphql");
+    assert.equal(options.method, "POST");
+    const variables = JSON.parse(new URLSearchParams(options.body).get("variables"));
+    assert.equal(variables.id, "12345678901234567890");
+    assert.equal(variables.options.surface, "PROFILE");
+    return { data: { user: { id: variables.id, username: "alpha", follower_count: 0 } } };
+  };
+  const record = { username: "alpha", instagramUserId: "12345678901234567890" };
+  assert.equal((await api.readProfile(record, gate)).followerCount, 0);
+  assert.equal((await api.readProfile(record, gate)).followerCount, 0);
+  assert.equal(calls, 1);
+  assert.equal(api.template.variables.id, "999");
+  assert.ok(state.messages.every((message) => message.type !== "metadata-result"));
+});
+
+test("Kimlik isteyen profil şablonuna boş kimlik gönderilmez", async () => {
+  const state = observer(async () => {});
+  const api = state.window.__TAKIP_WEB_OBSERVER__;
+  api.template = { identities: [{ path: ["id"], kind: "id" }] };
+  const result = await api.readProfile({ username: "alpha" }, () => { throw new Error("Boş kimlik sorgusu gönderilmemeli"); });
+  assert.equal(result, null);
+});
+
+test("Ortak kapının 429 hatası tarama çağrısına değiştirilmeden iletilir", async () => {
+  const state = observer(async () => {});
+  const api = state.window.__TAKIP_WEB_OBSERVER__;
+  api.template = { endpoint: "/api/graphql", body: "", variables: { id: "999" }, identities: [{ path: ["id"], kind: "id" }], headers: {} };
+  const error = Object.assign(new Error("HTTP 429"), { code: "RATE_LIMITED", retryAfterMs: 30000 });
+  await assert.rejects(api.readProfile({ username: "alpha", instagramUserId: "123" }, async () => { throw error; }), (caught) => caught === error);
+});

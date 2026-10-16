@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.0 - 2026-10-16
+
+- Replace fixed 12-account pages with balanced 50-account and fast 100-account requests; use one paced request queue for lists and profile counters.
+- Collect profile follower counts during relationship scanning, reusing list-provided counts and results for accounts present in both lists.
+- Remove separate counter loading from the UI; preserve unavailable counts as unknown and keep cancellation, identity checks and 429 cooldowns.
+- Add Aurora, AMOLED, Coffee and Cyber themes, per-profile starred accounts, filtered-list copying, and persistent compact/comfortable layouts.
+- Show scan counter progress and elapsed time, keep dashboard refresh progress visible, and prevent conflicting imports during a scan.
+- Publish current Android/Windows packages and remove superseded GitHub release pages after verifying the new artifacts.
+
 ## 1.4.1 - 2026-10-14
 
 - Simplify the not-following-back cards to photo, username, follower count and the existing relationship badge.

@@ -31,7 +31,9 @@ async function build() {
     fs.copyFileSync(path.join(root, "scripts", script), path.join(destination, "scripts", script));
   }
   fs.mkdirSync(path.join(destination, "shared"), { recursive: true });
-  fs.copyFileSync(path.join(root, "android/app/src/main/assets/instagram-collector.js"), path.join(destination, "shared/instagram-collector.js"));
+  for (const asset of ["instagram-collector.js", "instagram-web-observer.js"]) {
+    fs.copyFileSync(path.join(root, "android/app/src/main/assets", asset), path.join(destination, "shared", asset));
+  }
   fs.mkdirSync(path.join(destination, "node_modules"), { recursive: true });
   fs.cpSync(path.join(root, "node_modules/playwright-core"), path.join(destination, "node_modules/playwright-core"), { recursive: true });
   fs.writeFileSync(path.join(destination, "package.json"), JSON.stringify({ name: "takip-atlasi-pc", version, private: true }));
@@ -41,7 +43,7 @@ async function build() {
   for (const [name, bytes] of Object.entries(entries)) {
     fs.writeFileSync(path.join(destination, "runtime", path.basename(name)), bytes);
   }
-  fs.writeFileSync(path.join(destination, "KULLANIM.txt"), "ZIP'in tamamini bir klasore cikart ve Takip-Atlasi-PC.bat dosyasina cift tikla.\r\nEdge veya Chrome kurulu olmali. Node/npm kurmana gerek yok.\r\nGiris acilan gercek Instagram penceresindedir; sonra uygulamada Listeleri tara dugmesine bas.\r\nFoto/sayaclar icin Hesap bilgilerini yukle dugmesini kullan.\r\n");
+  fs.writeFileSync(path.join(destination, "KULLANIM.txt"), "ZIP'in tamamini bir klasore cikart ve Takip-Atlasi-PC.bat dosyasina cift tikla.\r\nEdge veya Chrome kurulu olmali. Node/npm kurmana gerek yok.\r\nGiris acilan gercek Instagram penceresindedir; sonra uygulamada Listeleri tara dugmesine bas.\r\nProfil takipci sayilari ayni taramada otomatik hazirlanir. Dengeli tempo 50, Hizli tempo 100 hesap ister.\r\nYildizli hesaplarini saklayabilir ve filtrelenmis listenin tamamini kopyalayabilirsin.\r\n");
   const files = {};
   const collect = (directory, relative = "") => {
     for (const name of fs.readdirSync(directory)) {
