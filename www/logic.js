@@ -110,6 +110,7 @@
       const followerCount = normalizeAccountCount(record.followerCount);
       const followingCount = normalizeAccountCount(record.followingCount);
       const postCount = normalizeAccountCount(record.postCount);
+      const countsUpdatedAt = Number.isSafeInteger(Number(record.countsUpdatedAt)) ? Math.max(0, Number(record.countsUpdatedAt)) : 0;
       const existing = byUsername.get(username);
       if (!existing) {
         byUsername.set(username, {
@@ -120,6 +121,7 @@
           followerCount,
           followingCount,
           postCount,
+          countsUpdatedAt,
         });
       } else {
         byUsername.set(username, {
@@ -130,6 +132,7 @@
           followerCount: followerCount ?? existing.followerCount,
           followingCount: followingCount ?? existing.followingCount,
           postCount: postCount ?? existing.postCount,
+          countsUpdatedAt: followerCount !== null ? countsUpdatedAt : existing.countsUpdatedAt,
         });
       }
     });
@@ -145,7 +148,7 @@
     return new Map((records || []).map((record) => [record.username, record]));
   }
 
-  function enrichRecord(username, followerMap, followingMap, fallbackRecord, change) {
+  function enrichRecord(username, followerMap, followingMap, fallbackRecord, change, completeness = { followers: true, following: true }) {
     const followerRecord = followerMap.get(username);
     const followingRecord = followingMap.get(username);
 
@@ -171,13 +174,15 @@
         normalizeAccountCount(followerRecord && followerRecord.postCount) ??
         normalizeAccountCount(followingRecord && followingRecord.postCount) ??
         normalizeAccountCount(fallbackRecord && fallbackRecord.postCount),
+      countsUpdatedAt: Math.max(Number(followerRecord?.countsUpdatedAt) || 0, Number(followingRecord?.countsUpdatedAt) || 0, Number(fallbackRecord?.countsUpdatedAt) || 0),
       timestamp: Math.max(
         followerRecord ? followerRecord.timestamp : 0,
         followingRecord ? followingRecord.timestamp : 0,
         fallbackRecord ? fallbackRecord.timestamp : 0,
       ),
-      isFollower: followerMap.has(username),
-      isFollowing: followingMap.has(username),
+      isFollower: followerMap.has(username) ? true : completeness.followers ? false : null,
+      isFollowing: followingMap.has(username) ? true : completeness.following ? false : null,
+      relationshipUnknown: !followerMap.has(username) && !completeness.followers || !followingMap.has(username) && !completeness.following,
       change: change || "",
     };
   }
@@ -191,24 +196,32 @@
     const previousFollowingMap = recordMap(previous && previous.following);
     const allNames = new Set([...followerMap.keys(), ...followingMap.keys()]);
     const hasPrevious = Boolean(previous);
+    const completeness = {
+      followers: current?.collection?.followers?.complete !== false && !(current?.collection?.complete === false && !current?.collection?.followers),
+      following: current?.collection?.following?.complete !== false && !(current?.collection?.complete === false && !current?.collection?.following),
+    };
+    const canCompareFollowers = hasPrevious && completeness.followers && previous?.collection?.followers?.complete !== false &&
+      !(previous?.collection?.complete === false && !previous?.collection?.followers);
+    const canCompareFollowing = hasPrevious && completeness.following && previous?.collection?.following?.complete !== false &&
+      !(previous?.collection?.complete === false && !previous?.collection?.following);
 
     const all = Array.from(allNames, (username) =>
-      enrichRecord(username, followerMap, followingMap),
+      enrichRecord(username, followerMap, followingMap, undefined, undefined, completeness),
     ).sort(sortRecent);
 
     const followerItems = followers.map((record) =>
-      enrichRecord(record.username, followerMap, followingMap, record),
+      enrichRecord(record.username, followerMap, followingMap, record, undefined, completeness),
     );
 
     const followingItems = following.map((record) =>
-      enrichRecord(record.username, followerMap, followingMap, record),
+      enrichRecord(record.username, followerMap, followingMap, record, undefined, completeness),
     );
 
-    const mutual = followingItems.filter((record) => record.isFollower);
-    const notFollowingBack = followingItems.filter((record) => !record.isFollower);
-    const youDontFollowBack = followerItems.filter((record) => !record.isFollowing);
+    const mutual = followingItems.filter((record) => record.isFollower === true);
+    const notFollowingBack = followingItems.filter((record) => record.isFollower === false);
+    const youDontFollowBack = followerItems.filter((record) => record.isFollowing === false);
 
-    const newFollowers = hasPrevious
+    const newFollowers = canCompareFollowers
       ? followerItems
           .filter((record) => !previousFollowerMap.has(record.username))
           .map((record) => ({
@@ -219,7 +232,7 @@
           }))
       : [];
 
-    const lostFollowers = hasPrevious
+    const lostFollowers = canCompareFollowers
       ? Array.from(previousFollowerMap.values())
           .filter((record) => !followerMap.has(record.username))
           .map((record) =>
@@ -229,6 +242,7 @@
               followingMap,
               record,
               "lostFollower",
+              completeness,
             ),
           )
           .map((record) => ({
@@ -239,11 +253,11 @@
           .sort(sortRecent)
       : [];
 
-    const newFollowing = hasPrevious
+    const newFollowing = canCompareFollowing
       ? followingItems.filter((record) => !previousFollowingMap.has(record.username))
       : [];
 
-    const stoppedFollowing = hasPrevious
+    const stoppedFollowing = canCompareFollowing
       ? Array.from(previousFollowingMap.values()).filter(
           (record) => !followingMap.has(record.username),
         )
@@ -261,9 +275,13 @@
       newFollowing,
       stoppedFollowing,
       hasPrevious,
+      completeness,
+      isLimited: !completeness.followers || !completeness.following,
+      canCompareFollowers,
+      canCompareFollowing,
       deltas: {
-        followers: hasPrevious ? followers.length - previousFollowerMap.size : 0,
-        following: hasPrevious ? following.length - previousFollowingMap.size : 0,
+        followers: canCompareFollowers ? followers.length - previousFollowerMap.size : 0,
+        following: canCompareFollowing ? following.length - previousFollowingMap.size : 0,
       },
     };
   }
@@ -283,6 +301,19 @@
     return hashString(`f:${followers};g:${following}`);
   }
 
+  function normalizeCollection(value, followersCount, followingCount) {
+    const source = value && typeof value === "object" ? value : {};
+    const result = {};
+    for (const [name, observed] of [["followers", followersCount], ["following", followingCount]]) {
+      const raw = source[name] && typeof source[name] === "object" ? source[name] : {};
+      const expected = normalizeAccountCount(raw.expected) ?? observed;
+      result[name] = { expected, observed, complete: raw.complete !== false && !(source.complete === false && !source[name]) &&
+        observed >= expected && raw.restricted !== true, restricted: raw.restricted === true, rechecked: raw.rechecked === true };
+    }
+    result.complete = result.followers.complete && result.following.complete;
+    return result;
+  }
+
   function createSnapshot(username, dataset, importedAt) {
     const timestamp = Number(importedAt) || Date.now();
     const cleanDataset = {
@@ -291,6 +322,7 @@
       profilePicUrl: normalizeProfilePicUrl(dataset.profilePicUrl),
       sourceFiles: Array.from(new Set(dataset.sourceFiles || [])),
     };
+    cleanDataset.collection = normalizeCollection(dataset.collection, cleanDataset.followers.length, cleanDataset.following.length);
 
     return {
       id: `${timestamp}-${Math.random().toString(36).slice(2, 9)}`,
@@ -371,6 +403,9 @@
       return names.map((name, index) => ({
         username: name,
         timestamp: nowSeconds - (index + offset) * day * 3,
+        followerCount: [235, 1700, 12450, 0, 865, 48200, 320, 9920][index % 8],
+        followingCount: 150 + index * 7,
+        postCount: 12 + index * 3,
       }));
     }
 
@@ -405,6 +440,7 @@
     normalizeProfilePicUrl,
     normalizeInstagramUserId,
     normalizeAccountCount,
+    normalizeCollection,
     analyzeDataset,
     datasetFingerprint,
     createSnapshot,

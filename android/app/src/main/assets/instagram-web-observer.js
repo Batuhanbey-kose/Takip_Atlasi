@@ -147,7 +147,7 @@
     try {
       if (Date.now() < blockedUntil) result.retryAfterMs = blockedUntil - Date.now();
       else if (!api.template) result.sessionRequired = true;
-      else for (const record of (Array.isArray(records) ? records : []).slice(0, 4)) {
+      else for (const record of (Array.isArray(records) ? records : []).slice(0, 1)) {
         if (generation !== api.generation) break;
         const name = username(record.username);
         const id = userId(record.instagramUserId);
@@ -172,7 +172,12 @@
         let response;
         try { response = await originalFetch(api.template.endpoint, { method: "POST", credentials: "include", redirect: "manual", headers: api.template.headers, body: body.toString(), signal: api.abort.signal }); }
         finally { clearTimeout(timer); }
-        if (response.status === 429) { const seconds = Number(response.headers.get("Retry-After")); result.retryAfterMs = seconds > 0 ? Math.min(86400000, seconds * 1000) : 900000; break; }
+        if (response.status === 429) {
+          const value = response.headers.get("Retry-After");
+          const milliseconds = /^\d+(?:\.\d+)?$/.test(value || "") ? Number(value) * 1000 : Date.parse(value) - Date.now();
+          result.retryAfterMs = milliseconds > 0 ? Math.min(86400000, Math.max(1000, milliseconds)) : 900000;
+          break;
+        }
         if ([401, 403].includes(response.status) || response.type === "opaqueredirect") { result.sessionRequired = true; break; }
         if (response.status === 400) { result.requestRejected = true; break; }
         const payload = await response.json().catch(() => null);

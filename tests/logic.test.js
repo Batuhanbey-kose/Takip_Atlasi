@@ -160,7 +160,7 @@ test("sayaç sıralaması bütün listeyi kapsar ve hesap istekleri tek işçiyl
 
   assert.match(appSource, /queryMatches\.filter\(\(person\) => !visibleNames\.has\(person\.username\)\)/);
   assert.doesNotMatch(appSource, /queryMatches\.slice\(0, state\.limit\)/);
-  assert.match(repositorySource, /MAX_METADATA_BATCH = 4/);
+  assert.match(repositorySource, /MAX_METADATA_BATCH = 1/);
   assert.match(repositorySource, /METADATA_WORKERS = 1/);
 });
 
@@ -245,7 +245,7 @@ test("Android yerel Instagram toplayıcısı sayfalı listeleri telefonda birle�
   assert.ok(requests.some((request) => request.includes("/friendships/999/followers/")));
   assert.ok(requests.some((request) => request.includes("max_id=cursor-2")));
   assert.ok(requests.every((request) => !request.includes("/users/999/info/")));
-  assert.ok(requests.some((request) => request.includes("count=50")));
+  assert.ok(requests.some((request) => request.includes("count=12")));
 });
 
 test("Android toplayıcı eksik sayaçları tamamlar ve sunucunun döndürdüğü sayfaları birleştirir", async () => {
@@ -277,14 +277,14 @@ test("Android toplayıcı eksik sayaçları tamamlar ve sunucunun döndürdüğ�
   assert.equal(result.type, "complete");
   assert.equal(result.followersCount, 101);
   assert.equal(result.followingCount, 0);
-  assert.ok(requests.some((request) => request.includes("count=50")));
+  assert.ok(requests.some((request) => request.includes("count=12")));
   assert.ok(requests.some((request) => request.includes("max_id=next")));
 });
 
-test("Dengeli ve hızlı tempolar liste sayfalarına ve istek aralıklarına uygulanır", async () => {
+test("Eski hızlı tercihler temkinli tempoya döner; istekler sırayla ve aralıklı çalışır", async () => {
   for (const [tempo, minimum, maximum, size] of [
-    [undefined, 600, 1000, 50], ["slow", 2000, 3000, 25], ["original", 1100, 2000, 50],
-    ["steady", 600, 1000, 50], ["fast", 350, 600, 100], ["toString", 600, 1000, 50],
+    [undefined, 2000, 3000, 12], ["slow", 2000, 3000, 12], ["slower", 3000, 4000, 12],
+    ["original", 2000, 3000, 12], ["steady", 2000, 3000, 12], ["fast", 2000, 3000, 12], ["toString", 2000, 3000, 12],
   ]) {
     const pauses = [];
     const requests = [];
@@ -314,7 +314,7 @@ test("Doğrulanmış web profili eski hesap sorgularını atlar ve yalnızca izi
   const result = await runAndroidCollector(async (pathname, options) => {
     requests.push(pathname);
     assert.ok(pathname.includes("/friendships/999/"));
-    assert.ok(pathname.includes("count=50"));
+    assert.ok(pathname.includes("count=12"));
     assert.equal(options.headers["X-ASBD-ID"], "test-asbd");
     assert.equal(options.headers["X-IG-WWW-Claim"], "test-claim");
     assert.equal(options.headers.Cookie, undefined);
@@ -369,59 +369,61 @@ test("Liste yanıtındaki takipçi sayıları ve sıfır değerleri aynı tarama
   assert.equal(scan.result.profilesTotal, 2);
 });
 
-test("Eksik profil sayaçları sayfalar arasında alınır; karşılıklı kişi tekrar sorgulanmaz", async () => {
+test("Eksik sayaçlar için tekli profil sorgusu açılmaz ve listeler beklemeden tamamlanır", async () => {
   const scan = await integratedScan(
     [{ username: "alpha", pk: "1" }, { username: "beta", pk: "2" }], [{ username: "alpha", pk: "1" }],
-    (name) => scanResponse({ user: { username: name, instagramUserId: name === "alpha" ? "1" : "2", followerCount: name === "alpha" ? 42 : 0 } }),
+    () => { throw new Error("Profil sorgusu taramayı yavaşlatmamalı"); },
   );
   assert.equal(scan.result.type, "complete");
-  assert.deepEqual(scan.requests.map((request) => request.pathname === "/api/graphql" ? request.body : /\/(followers|following)\//.exec(request.pathname)[1]),
-    ["followers", "alpha", "beta", "following"]);
-  assert.equal(scan.records("followers").get("alpha").followerCount, 42);
-  assert.equal(scan.records("following").get("alpha").followerCount, 42);
-  assert.equal(scan.result.profilesReady, 2);
+  assert.deepEqual(scan.requests.map((request) => /\/(followers|following)\//.exec(request.pathname)[1]), ["followers", "following"]);
+  assert.equal(scan.records("followers").get("alpha").followerCount, null);
+  assert.equal(scan.records("following").get("alpha").followerCount, null);
+  assert.equal(scan.result.profilesReady, 0);
+  assert.equal(scan.result.profilesTotal, 2);
   for (const request of scan.requests) {
     assert.equal(Object.keys(request.headers).filter((name) => name.toLowerCase() === "x-asbd-id").length, 1);
   }
 });
 
-test("Tarama içindeki profil sorgusu 429 alırsa başka listeye veya profile geçilmez", async () => {
-  const scan = await integratedScan([{ username: "alpha", pk: "1" }, { username: "beta", pk: "2" }], [{ username: "alpha", pk: "1" }], () => scanResponse({}, 429));
-  assert.equal(scan.result.code, "RATE_LIMITED");
-  assert.equal(scan.result.retryAfterMs, 30000);
-  assert.equal(scan.requests.length, 2);
-  assert.ok(scan.messages.every((message) => message.type !== "complete"));
+test("İki listede aynı ad farklı hesap kimliğine dönüşürse tutarsız analiz kaydedilmez", async () => {
+  const scan = await integratedScan([{ username: "alpha", pk: "1" }], [{ username: "alpha", pk: "77" }], () => scanResponse({}));
+  assert.equal(scan.result.type, "error");
+  assert.match(scan.result.message, /kimliğini değiştirdi/);
 });
 
-test("Erişilemeyen tek profil sıfır yapılmaz ve diğer profil sayaçlarını engellemez", async () => {
-  const scan = await integratedScan([{ username: "alpha", pk: "1" }, { username: "beta", pk: "2" }], [{ username: "alpha", pk: "1" }],
-    (name) => name === "alpha" ? scanResponse({}, 404) : scanResponse({ user: { username: name, instagramUserId: "2", followerCount: 19 } }));
-  assert.equal(scan.result.type, "complete");
-  assert.equal(scan.result.profilesReady, 1);
-  assert.equal(scan.records("followers").get("alpha").followerCount, null);
-  assert.equal(scan.records("following").get("alpha").followerCount, null);
-  assert.equal(scan.records("followers").get("beta").followerCount, 19);
-  assert.equal(scan.requests.filter((request) => request.body === "alpha").length, 1);
-});
-
-test("Başka kimliğin profil sayacı listeye eklenmez", async () => {
-  const scan = await integratedScan([{ username: "alpha", pk: "1" }], [],
-    () => scanResponse({ user: { username: "alpha", instagramUserId: "77", followerCount: 900 } }));
-  assert.equal(scan.result.type, "complete");
-  assert.equal(scan.result.profilesReady, 0);
-  assert.equal(scan.records("followers").get("alpha").followerCount, null);
-});
-
-test("Sayaç toplarken durdurma yeni profil isteğini ve tamamlandı mesajını engeller", async () => {
+test("Liste sayfasından sonra durdurma başka listeye geçişi engeller", async () => {
   const scan = await integratedScan([{ username: "alpha", pk: "1" }, { username: "beta", pk: "2" }], [],
     (name) => scanResponse({ user: { username: name, instagramUserId: "1", followerCount: 5 } }), {
-      onMessage: (message, window) => { if (message.type === "progress" && message.profilesReady === 1) window.__TAKIP_ATLASI_NATIVE_CANCELLED__ = true; },
+      onMessage: (message, window) => { if (message.type === "progress" && message.followersCount === 2) window.__TAKIP_ATLASI_NATIVE_CANCELLED__ = true; },
     });
   assert.equal(scan.result.code, "CANCELLED");
-  assert.equal(scan.requests.length, 2);
+  assert.equal(scan.requests.length, 1);
 });
 
-test("100 hesap istenirken sunucunun küçük sayfaları eksiksiz birleştirilir", async () => {
+test("24'lük yanıtlarda 49 hesap dört liste isteğiyle biter; 49 tekli profil beklenmez", async () => {
+  const requests = [];
+  const counts = [];
+  let profileCalls = 0;
+  const result = await runAndroidCollector(async (pathname, request) => {
+    requests.push(pathname);
+    assert.equal(request.method, "GET");
+    assert.match(pathname, /\/friendships\//);
+    const offset = Number(new URL(pathname, "https://www.instagram.com").searchParams.get("max_id")) || 0;
+    const users = pathname.includes("/followers/") ? Array.from({ length: Math.min(24, 49 - offset) }, (_, index) => ({ username: `person.${offset + index}`, pk: String(offset + index + 1) })) : [];
+    return scanResponse({ users, ...(users.length && offset + users.length < 49 ? { next_max_id: String(offset + users.length) } : {}) });
+  }, {
+    preparedAccount: { userId: "999", username: "owner", followerCount: 49, followingCount: 0 },
+    observer: { readProfile: async () => { profileCalls += 1; return null; } },
+    onMessage: (message) => { if (message.type === "page") counts.push(message.users.length); },
+  });
+  assert.equal(result.type, "complete");
+  assert.equal(result.followersCount, 49);
+  assert.equal(requests.length, 4);
+  assert.equal(profileCalls, 0);
+  assert.deepEqual(counts, [24, 24, 1]);
+});
+
+test("Temkinli 12 hesaplık sayfalar eksiksiz birleştirilir", async () => {
   const requests = [];
   const result = await runAndroidCollector(async (pathname) => {
     requests.push(pathname);
@@ -433,7 +435,75 @@ test("100 hesap istenirken sunucunun küçük sayfaları eksiksiz birleştirilir
   assert.equal(result.followersCount, 61);
   assert.equal(result.profilesReady, 61);
   assert.equal(requests.length, 7);
-  assert.ok(requests.every((request) => request.includes("count=100")));
+  assert.ok(requests.every((request) => request.includes("count=12")));
+});
+
+async function scanFollowingGap(expected, firstLimit, secondLimit, restricted = false) {
+  let passes = 0;
+  const result = await runAndroidCollector(async (pathname) => {
+    if (pathname.includes("/followers/")) return scanResponse({ users: [{ username: "known.follower", pk: "1" }] });
+    const cursor = new URL(pathname, "https://www.instagram.com").searchParams.get("max_id");
+    if (!cursor) passes += 1;
+    const start = Number(cursor) || 0;
+    const limit = passes === 1 ? firstLimit : secondLimit;
+    const end = Math.min(limit, start + 12);
+    const users = Array.from({ length: Math.max(0, end - start) }, (_, index) => ({ username: `account.${start + index}`, pk: String(1000 + start + index) }));
+    return scanResponse({ users, ...(end < limit ? { next_max_id: String(end) } : {}), should_limit_list_of_followings: restricted });
+  }, { preparedAccount: { userId: "999", username: "owner", followerCount: 1, followingCount: expected } });
+  return { result, passes };
+}
+
+test("58/62 liste tek temkinli yeniden kontrolde tamamlanırsa tam kayıt olur", async () => {
+  const { result, passes } = await scanFollowingGap(62, 58, 62);
+  assert.equal(result.type, "complete");
+  assert.equal(result.followingCount, 62);
+  assert.equal(passes, 2);
+  assert.equal(result.collection.following.complete, true);
+  assert.equal(result.collection.following.rechecked, true);
+});
+
+test("58/62 farkı sürerse analiz sıfırlanmaz; erişilen 58 hesap sınırlı kayıt olur", async () => {
+  const { result, passes } = await scanFollowingGap(62, 58, 58);
+  assert.equal(result.type, "complete");
+  assert.equal(result.followingCount, 58);
+  assert.equal(passes, 2);
+  assert.equal(result.collection.following.expected, 62);
+  assert.equal(result.collection.following.observed, 58);
+  assert.equal(result.collection.following.complete, false);
+});
+
+test("53/64 sınırlaması açıkça bildirilirse tekrar zorlanmadan sınırlı kayıt oluşturulur", async () => {
+  const { result, passes } = await scanFollowingGap(64, 53, 53, true);
+  assert.equal(result.type, "complete");
+  assert.equal(passes, 1);
+  assert.equal(result.followingCount, 53);
+  assert.equal(result.collection.following.complete, false);
+  assert.equal(result.collection.following.restricted, true);
+});
+
+test("Eksik takipçi listesi yanlış takipten çıkma veya seni takip etmiyor sonucu üretmez", () => {
+  const previous = { followers: [{ username: "alpha" }, { username: "beta" }], following: [{ username: "beta" }] };
+  const current = { followers: [{ username: "alpha" }], following: [{ username: "beta" }],
+    collection: { followers: { expected: 2, observed: 1, complete: false }, following: { expected: 1, observed: 1, complete: true } } };
+  const snapshot = logic.createSnapshot("owner", current);
+  const analysis = logic.analyzeDataset(snapshot, previous);
+  assert.equal(snapshot.collection.complete, false);
+  assert.equal(analysis.isLimited, true);
+  assert.equal(analysis.canCompareFollowers, false);
+  assert.deepEqual(analysis.lostFollowers, []);
+  assert.deepEqual(analysis.notFollowingBack, []);
+  assert.equal(analysis.following[0].isFollower, null);
+  assert.equal(analysis.following[0].relationshipUnknown, true);
+});
+
+test("Eksik takip edilen listesi gerçek takipçiye sen takip etmiyorsun etiketi takmaz", () => {
+  const current = { followers: [{ username: "alpha" }, { username: "beta" }], following: [{ username: "beta" }],
+    collection: { followers: { complete: true, expected: 2 }, following: { complete: false, expected: 2 } } };
+  const analysis = logic.analyzeDataset(logic.createSnapshot("owner", current), current);
+  assert.deepEqual(analysis.youDontFollowBack, []);
+  assert.equal(analysis.canCompareFollowing, false);
+  assert.equal(analysis.followers.find((record) => record.username === "alpha").isFollowing, null);
+  assert.deepEqual(analysis.mutual.map((record) => record.username), ["beta"]);
 });
 
 test("API yönlendirmesi HTML veya kullanıcı adı hatası diye gizlenmez", async () => {

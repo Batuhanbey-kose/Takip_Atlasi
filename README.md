@@ -29,8 +29,8 @@ Android ilk kurulumda, APK'yı açtığın uygulamaya **Bilinmeyen uygulamaları
 **PC'de kullanmak için:** Kaynak kodu indir, Node.js 22 kur ve proje klasöründe `npm ci` ardından `npm start` çalıştır. `http://127.0.0.1:4173` adresini tarayıcıda aç. Yerel sunucu yalnızca bu bilgisayardan erişilir; Instagram parolası istemez ve verini başka bir sunucuya yüklemez.
 **Kurulumsuz Windows paketi:** GitHub Release'teki `Takip-Atlasi-PC.zip` dosyasının tamamını bir klasöre çıkartıp `Takip-Atlasi-PC.bat` dosyasına çift tıkla. Node/npm kurulumu gerekmez; Windows 10/11 x64 ve Edge veya Chrome gerekir.
 PC'de **Instagram'a bağlan (PC)** düğmesi normal Edge/Chrome penceresi açar. Girişi gerçek Instagram sayfasında tamamla, ardından Takip Atlası sayfasındaki **Listeleri tara** düğmesine bas. PC ve Android aynı liste toplayıcı kodunu kullanır; tarayıcı oturumları ayrı olduğundan iki platform ayrıca doğrulanmalıdır. Instagram 429 döndürürse PC taraması da durur ve yerel bekleme süresini korur.
-PC bağlantısı hesap toplamlarını Instagram'ın güncel web profil yanıtından doğrular ve web oturumunun istek başlıklarını kullanır. Dengeli tempoda 50, hızlı tempoda 100 hesaplık sayfalar ister; Instagram daha küçük sayfalar döndürürse cursor ile eksiksiz devam eder. Profil toplamları ile erişilebilen benzersiz hesap sayısı küçük farklılıklar gösterebilir.
-Profil takipçi sayıları **aynı liste taraması sırasında** hazırlanır. Liste yanıtında bulunan sayı doğrudan kullanılır; eksikse kişinin profil yanıtındaki sayaç okunur. İki listede bulunan aynı kişi tekrar sorgulanmaz. Ayrı sayaç yükleme düğmesi yoktur; kişinin bütün takipçi listesi sayılmaz. Örnek moddaki hesaplar canlı sorguya gönderilmez.
+PC bağlantısı hesap toplamlarını Instagram'ın güncel web profil yanıtından doğrular ve web oturumunun istek başlıklarını kullanır. Liste istekleri 12 hesaplık sayfalarla, tek sırada ve temkinli aralıklarla çalışır. Instagram daha küçük sayfalar döndürebilir; ilerleme cursor ile sürdürülür.
+Liste taraması ilişki sayfalarını sırayla okur. Sonuç ekranında eksik takipçi sayıları görünür hesaplardan başlayarak **birer birer** tamamlanır; dörtlü sayaç grubu kullanılmaz. Liste yanıtındaki sıfır değerleri korunur; yükleme sırasında sayı uydurulmaz. Hazırlanan sayaçlar kimlik ve gözlem zamanı ile kaydedilir, güncel önbellek tekrar kullanılabilir.
 **Seni takip etmeyenler** kartında fotoğraf, kullanıcı adı, profil takipçi sayısı ve ilişki etiketi gösterilir. Instagram sayıyı paylaşmazsa sıfır uydurulmaz; sayı bulunamadığı belirtilir. Fotoğraflar oturum çerezi gönderilmeden CDN'den alınır. Hata/düzeltme/yöntem geçmişi `docs/releases` klasöründedir.
 
 > [!NOTE]
@@ -50,7 +50,7 @@ Profil takipçi sayıları **aynı liste taraması sırasında** hazırlanır. L
 | Takipçiler, takip ettiklerin ve karşılıklı hesaplar | Takipçi, takip edilen ve gönderi sayaçları | Parola Takip Atlası arayüzüne girmez |
 | Seni takip etmeyenler ve senin takip etmediklerin | Profil fotoğrafları ve güvenli baş harf yedeği | Analizler yalnızca telefonda tutulur |
 | Yeni takipçiler ve takibi bırakanlar | Gelişmiş sıralama, arama ve filtreleme | Reklam, analiz SDK'sı ve geliştirici sunucusu yoktur |
-| Son 8 taramanın karşılaştırmalı geçmişi | 16 kalıcı görünüm teması | Uygulama içinden oturum ve veri silme |
+| Son 8 taramanın karşılaştırmalı geçmişi | 10 tasarım düzeni × 10 renk teması | Uygulama içinden oturum ve veri silme |
 | Yıldızlı hesaplar ve filtrelenmiş listeyi kopyalama | Sık / rahat kart görünümü | Profil bazında yerel yıldızlılar |
 
 ## Nasıl Çalışır?
@@ -63,11 +63,15 @@ Instagram kullanıcı adın otomatik okunamazsa başlangıç ekranındaki profil
 Hesap sorguları Instagram tarafından reddedilirse uygulama hangi sorguda hangi HTTP yanıtını aldığını gösterir. Bu hata kodları oturum çerezlerini veya hesap kimliğini içermez.
 **HTTP 429** alınırsa tarama ve takip hesabı bilgisi istekleri durur; Instagram'ın `Retry-After` süresi, belirtilmediyse 15 dakikalık yerel bekleme uygulanır. Bekleme bittikten sonra da Instagram erişimi reddedebilir; süre bir başarı garantisi değildir. **HTTP 400** tek başına hatanın sebebini açıklamaz; tanınan istemci uyumsuzluğu veya giriş doğrulama yanıtları ayrıca belirtilir.
 
-Takibi bırakanları ve yeni takipçileri görebilmek için farklı zamanlarda en az iki tarama gerekir. Başlattığın tarama, listeleri ve profil takipçi sayılarını birlikte toplar. İlerleme alanında hazır profil sayısını ve geçen süreyi görebilir, işlemi durdurabilirsin. Bildirim veya periyodik arka plan taraması yoktur. Profil sayıları için gereken ek web sorguları aynı sıraya ve 429 beklemesine tabidir; toplam süre hesap sayısına ve Instagram yanıtlarına bağlıdır.
+Takibi bırakanları ve yeni takipçileri görebilmek için farklı zamanlarda en az iki tarama gerekir. Tarama ilerlemesi liste sayfaları üzerinden gösterilir; her kişiden sonra tek tek sayaç hazırlanmaz. İlerleme alanında geçen süreyi görebilir, işlemi durdurabilirsin. Bildirim veya periyodik arka plan taraması yoktur.
 
-**Tarama temposu:** Varsayılan **Dengeli**, 50 hesaplık sayfa ve istekler arasında 0,6–1 saniye aralık kullanır. **Hızlı**, 100 hesap ve 0,35–0,6 saniye; **Temkinli**, 25 hesap ve 2–3 saniye kullanır. İstekler tek sırada çalışır. Sayfa boyutu ve aralıklar istek ayarlarıdır; Instagram'ın daha az hesap döndürmesini veya 429 uygulamasını engellemez.
+**Tarama temposu:** Varsayılan **Temkinli**, liste istekleri arasında 2–3 saniye bekler; **Daha yavaş** seçeneği 3–4 saniyedir. Önceki hızlı tercihler yeni varsayılanı geçersiz kılmaz. Profil sayaçları tek hesaplık çağrılarla ve aralarında 1,5–2,2 saniye aralıkla alınır. 429 ve oturum hatalarında yeni istekler durur.
 
-**Yeni liste araçları:** Karttaki yıldız, hesabı **Yıldızlılar** bölümüne kaydeder. **Listeyi kopyala**, ekranda ilk görünen kartlarla sınırlı kalmadan mevcut filtreye uyan bütün kullanıcı adlarını kopyalar; pano erişimi yoksa seçilebilir metin açar. **Sık / Rahat görünüm** seçimin ve Aurora, AMOLED, Kahve, Siber dahil 16 tema bu cihazda hatırlanır.
+**Eksik liste:** Sayfa sonu geldiğinde toplam beklenenden belirgin azsa liste bir kez daha temkinli kontrol edilir. Küçük fark devam ederse (örneğin 58/62), erişilen hesaplar **sınırlı analiz** olarak saklanır ve ekranda açıkça belirtilir. Eksik listenin yokluk bilgisi kesin ilişki veya takipten çıkma sonucuna dönüştürülmez. Büyük eksiklikler, boş/bozuk ara sayfalar ve kesilmiş sayfalama hâlâ reddedilir.
+
+**Liste araçları:** Karttaki yıldız, hesabı **Yıldızlılar** bölümüne kaydeder. **Listeyi kopyala**, mevcut filtreye uyan bütün kullanıcı adlarını kopyalar. Sayısal filtrelerde sayısı henüz yüklenmeyen hesaplar eşleşmiş gibi sayılmaz veya kesin sonuç yok diye gizlenmez; ayrı bekleme alanında gösterilir. Sayılar geldikçe filtre ve sıralama otomatik yenilenir.
+
+**Tasarım ve çıkış:** Üstteki **Görünüm** düğmesi Kartlar, Modüler, Cam, Dergi, Yoğun, Portre, Terminal, Panel, Şerit ve Odak düzenlerini açar. Bunlar 10 renk temasından bağımsız seçilir ve cihazda hatırlanır. **Çıkış yap**, Instagram oturumunu kapatır; analiz geçmişi saklanır. Sayaç yükleme çıkışta, tarama başlatıldığında ve uygulama arka plana geçtiğinde durdurulur. Yerel APK `com.takipatlasi.app.local` kimliği ve **Takip Atlası Yerel** adıyla kurulur.
 
 ## Gizlilik
 

@@ -80,3 +80,21 @@ test("PC köprüsü 429 beklemesini uygular ve yeni tarama başlatmaz", () => {
   assert.equal(collector.state.phase, "error");
   assert.equal(collector.state.error.code, "RATE_LIMITED");
 });
+
+test("PC çıkışı tarayıcı oturumunu kapatır ve 429 beklemesini silmez", async () => {
+  const collector = new DesktopCollector({ stateFile: null });
+  const blockedUntil = Date.now() + 120000;
+  collector.blockedUntil = blockedUntil;
+  let closed = false;
+  collector.browser = { close: async () => { closed = true; } };
+  collector.context = {};
+  collector.browserPromise = Promise.resolve(collector.context);
+  await collector.close();
+  assert.equal(closed, true);
+  assert.equal(collector.context, null);
+  assert.equal(collector.browser, null);
+  assert.equal(collector.browserPromise, null);
+  assert.equal(collector.state.phase, "idle");
+  assert.equal(collector.blockedUntil, blockedUntil);
+  assert.throws(() => collector.start({ username: "owner" }), (error) => error.code === "RATE_LIMITED");
+});

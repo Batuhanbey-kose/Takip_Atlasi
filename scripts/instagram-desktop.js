@@ -106,7 +106,7 @@ class DesktopCollector {
       throw failure("INVALID_USERNAME", "Instagram kullanıcı adı geçersiz.");
     }
     this.cancelEnrichment();
-    this.tempo = ["slow", "original", "steady", "fast"].includes(options.tempo) ? options.tempo : "steady";
+    this.tempo = options.tempo === "slower" ? "slower" : "slow";
     this.records.followers.clear();
     this.records.following.clear();
     this.summary = null;
@@ -267,6 +267,7 @@ class DesktopCollector {
       }
       this.summary = { username, profilePicUrl: logic.normalizeProfilePicUrl(message.profilePicUrl),
         followersCount: this.records.followers.size, followingCount: this.records.following.size,
+        collection: message.collection || null,
         profilesReady: Math.max(0, Number(message.profilesReady) || 0), profilesTotal: Math.max(0, Number(message.profilesTotal) || 0) };
       this.active = false;
       this.scanning = false;
@@ -340,10 +341,14 @@ class DesktopCollector {
     this.scanning = false;
     clearTimeout(this.watchdog);
     if (this.browser) await this.browser.close();
+    this.browser = null;
+    this.context = null;
+    this.browserPromise = null;
     this.page = null;
     this.records.followers.clear();
     this.records.following.clear();
     this.summary = null;
+    this.state = { phase: "idle", message: "Instagram oturumu kapatıldı.", progress: 0, followersCount: 0, followingCount: 0 };
   }
 }
 

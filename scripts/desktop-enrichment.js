@@ -82,6 +82,14 @@ class DesktopEnrichment {
     if (!context || !(await context.cookies(ORIGIN)).some((cookie) => cookie.name === "sessionid" && cookie.value)) {
       throw Object.assign(new Error("Instagram oturumu gerekli."), { code: "SESSION_REQUIRED" });
     }
+    if (this.desktop.page && !this.desktop.page.isClosed()) {
+      const observed = await this.desktop.page.evaluate(() => window.__TAKIP_WEB_OBSERVER__?.template || null).catch(() => null);
+      if (observed?.identities?.length) {
+        this.page = this.desktop.page;
+        this.template = observed;
+        return observed;
+      }
+    }
     this.page = await this.backgroundPage(context);
     await this.page.goto(`${ORIGIN}/${encodeURIComponent(person.username)}/`, { waitUntil: "domcontentloaded", timeout: 45000 });
     const deadline = Date.now() + 30000;
@@ -135,7 +143,7 @@ class DesktopEnrichment {
     if (this.desktop.active) return { records: results, connectionFailed: true };
     this.busy = true;
     try {
-      for (const record of Array.isArray(records) ? records.slice(0, 4) : []) {
+      for (const record of Array.isArray(records) ? records.slice(0, 1) : []) {
         if (generation !== this.generation) break;
         const person = { username: logic.normalizeUsername(record?.username), instagramUserId: logic.normalizeInstagramUserId(record?.instagramUserId) };
         if (!person.username) continue;

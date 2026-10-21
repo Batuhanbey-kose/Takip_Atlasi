@@ -6,24 +6,8 @@
   const storage = window.TakipStorage;
   const PAGE_SIZE = 48;
   const DATA_DISCLOSURE_KEY = "takip-atlasi-data-disclosure-v1";
-  const themes = {
-    atlas: { name: "Atlas", mode: "light", themeColor: "#17142d" },
-    ocean: { name: "Okyanus", mode: "light", themeColor: "#082f49" },
-    forest: { name: "Orman", mode: "light", themeColor: "#173524" },
-    sunset: { name: "Gün Batımı", mode: "light", themeColor: "#3b1d2a" },
-    sakura: { name: "Sakura", mode: "light", themeColor: "#3a1930" },
-    lavender: { name: "Lavanta", mode: "light", themeColor: "#241b45" },
-    ice: { name: "Buz", mode: "light", themeColor: "#172a3a" },
-    sand: { name: "Kum", mode: "light", themeColor: "#3b2e24" },
-    mono: { name: "Mono", mode: "light", themeColor: "#111111" },
-    midnight: { name: "Gece", mode: "dark", themeColor: "#080914" },
-    neon: { name: "Neon", mode: "dark", themeColor: "#050908" },
-    cherry: { name: "Vişne", mode: "light", themeColor: "#34111f" },
-    aurora: { name: "Aurora", mode: "dark", themeColor: "#071e26" },
-    amoled: { name: "AMOLED", mode: "dark", themeColor: "#000000" },
-    coffee: { name: "Kahve", mode: "light", themeColor: "#35251e" },
-    cyber: { name: "Siber", mode: "dark", themeColor: "#101027" },
-  };
+  const themes = window.TakipAppearance.themes;
+  const layouts = window.TakipAppearance.layouts;
   const numberFormatter = new Intl.NumberFormat("tr-TR");
   const dateFormatter = new Intl.DateTimeFormat("tr-TR", {
     day: "numeric",
@@ -34,7 +18,7 @@
   const clockFormatter = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit" });
   const compactFormatter = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
   const countFormatter = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 });
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reducedMotion = true;
   const isAndroidRuntime = Boolean(
     window.Capacitor &&
     window.Capacitor.isNativePlatform?.() &&
@@ -42,6 +26,7 @@
   );
   const collectorState = {
     busy: false,
+    loggingOut: false,
     fromDashboard: false,
     startedAt: 0,
   };
@@ -52,7 +37,7 @@
     pendingConsentOptions: null,
     blockedUntil: 0,
     cooldownTimer: null,
-    scanTempo: "steady",
+    scanTempo: "slow",
   };
 
   const categoryMeta = {
@@ -145,6 +130,13 @@
     nativePhotoRequestInProgress: false,
     nativePendingPhotoPeople: [],
     nativeEnrichmentSnapshotId: "",
+    counterLoader: null,
+    counterAutoScope: "",
+    counterUserPaused: false,
+    counterSaveTimer: null,
+    counterRevision: 0,
+    counterSavedRevision: 0,
+    counterStatus: { phase: "idle", total: 0, ready: 0, pending: 0, unavailable: 0 },
   };
 
   const elements = {};
@@ -154,12 +146,14 @@
 
   async function initialize() {
     cacheElements();
+    renderAppearanceOptions();
     bindEvents();
     initializeScanTempo();
     if (isAndroidRuntime && await clearLegacyWebRuntime()) {
       return;
     }
     initializeTheme();
+    initializeLayout();
     initializeListDensity();
     updateSetupValidity();
     await initializeNativeCollector();
@@ -228,6 +222,11 @@
       "themeButton",
       "currentThemeName",
       "themeDialog",
+      "appearanceButton",
+      "themeOptions",
+      "layoutOptions",
+      "currentLayoutName",
+      "appearanceSelection",
       "privacyButton",
       "privacyDialog",
       "dataDisclosureDialog",
@@ -239,11 +238,21 @@
       "searchInput",
       "sortSelect",
       "listDetailStatus",
+      "counterPanel",
+      "counterStatusText",
+      "counterStatusHint",
+      "scanNotice",
+      "counterProgressBar",
+      "counterActionButton",
+      "pendingCounters",
+      "pendingCounterText",
+      "pendingCounterPeople",
       "openFilterButton",
       "activeFilterCount",
       "filterDialog",
       "filterTitle",
       "filterHint",
+      "filterError",
       "relationshipFilter",
       "detailsFilter",
       "audienceFilter",
@@ -255,6 +264,7 @@
       "syncStatus",
       "lastSyncText",
       "refreshButton",
+      "logoutButton",
       "overviewPanel",
       "listPanel",
       "welcomeName",
@@ -366,6 +376,12 @@
     elements.densityButton.addEventListener("click", () => applyListDensity(state.listDensity === "compact" ? "comfortable" : "compact"));
 
     elements.refreshButton.addEventListener("click", openRefreshDialog);
+    elements.logoutButton.addEventListener("click", logoutInstagram);
+    elements.counterActionButton.addEventListener("click", handleCounterAction);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) pauseCounters();
+      else if (!state.counterUserPaused && state.profile && !elements.dashboardView.hidden) startAutoCounters(true);
+    });
 
     elements.menuButton.addEventListener("click", openMobileSidebar);
     elements.mobileMoreButton.addEventListener("click", openMobileSidebar);
@@ -374,6 +390,7 @@
 
     elements.changeProfileButton.addEventListener("click", () => openDialog(elements.confirmDialog));
     elements.themeButton.addEventListener("click", () => openDialog(elements.themeDialog));
+    elements.appearanceButton.addEventListener("click", () => openDialog(elements.themeDialog));
     elements.privacyButton.addEventListener("click", () => openDialog(elements.privacyDialog));
     elements.openPrivacyFromDisclosureButton.addEventListener("click", () => {
       elements.dataDisclosureDialog.close();
@@ -388,6 +405,9 @@
       button.addEventListener("click", () => selectTheme(button.dataset.themeOption));
     });
     elements.keepDataButton.addEventListener("click", leaveProfileWithoutDeleting);
+    document.querySelectorAll("[data-layout-option]").forEach((button) => {
+      button.addEventListener("click", () => applyLayout(button.dataset.layoutOption, true));
+    });
     elements.deleteDataButton.addEventListener("click", deleteLocalData);
 
     document.addEventListener("error", handleProfilePhotoError, true);
@@ -400,11 +420,11 @@
     } catch (error) {
       savedTheme = "atlas";
     }
-    applyTheme(themes[savedTheme] ? savedTheme : "atlas", false);
+    applyTheme(window.TakipAppearance.themeId(savedTheme), false);
   }
 
   function selectTheme(themeId) {
-    if (!themes[themeId]) {
+    if (!Object.keys(themes).includes(themeId)) {
       return;
     }
 
@@ -431,6 +451,7 @@
       themeColor.setAttribute("content", theme.themeColor);
     }
     elements.currentThemeName.textContent = theme.name;
+    updateAppearanceSelection();
     document.querySelectorAll("[data-theme-option]").forEach((button) => {
       const active = button.dataset.themeOption === themeId;
       button.classList.toggle("is-active", active);
@@ -439,8 +460,41 @@
 
     if (announce) {
       elements.themeDialog.close();
-      showToast(`${theme.name} teması uygulandı.`, "◐");
     }
+  }
+
+  function renderAppearanceOptions() {
+    elements.themeOptions.innerHTML = Object.entries(themes).map(([id, theme]) =>
+      `<button class="theme-option theme-option--${id}" type="button" data-theme-option="${id}" aria-pressed="false"><span class="theme-preview" aria-hidden="true"><i></i><i></i><i></i></span><strong>${theme.name}<b>✓</b></strong><small>${theme.note}</small></button>`).join("");
+    elements.layoutOptions.innerHTML = Object.entries(layouts).map(([id, layout], index) =>
+      `<button class="layout-option" type="button" data-layout-option="${id}" aria-pressed="false"><span class="layout-preview layout-preview--${id}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><strong><span>${String(index + 1).padStart(2, "0")}</span> ${layout.name}</strong><small>${layout.note}</small></button>`).join("");
+  }
+
+  function initializeLayout() {
+    let saved = "atlas";
+    try { saved = localStorage.getItem("takip-atlasi-layout") || saved; } catch (error) { /* Use the default cards. */ }
+    applyLayout(window.TakipAppearance.layoutId(saved), false);
+  }
+
+  function applyLayout(value, announce) {
+    const id = window.TakipAppearance.layoutId(value);
+    document.documentElement.dataset.layout = id;
+    elements.currentLayoutName.textContent = layouts[id].name;
+    try { localStorage.setItem("takip-atlasi-layout", id); } catch (error) { /* The selected layout works in this session. */ }
+    document.querySelectorAll("[data-layout-option]").forEach((button) => {
+      const active = button.dataset.layoutOption === id;
+      button.setAttribute("aria-pressed", String(active));
+      button.classList.toggle("is-active", active);
+    });
+    closeMobileSidebar();
+    updateAppearanceSelection();
+    if (announce) elements.themeDialog.close();
+  }
+
+  function updateAppearanceSelection() {
+    const theme = themes[document.documentElement.dataset.theme] || themes.atlas;
+    const layout = layouts[document.documentElement.dataset.layout] || layouts.atlas;
+    elements.appearanceSelection.textContent = `${layout.name} tasarımı · ${theme.name} teması`;
   }
 
   function initializeListDensity() {
@@ -550,8 +604,10 @@
   }
 
   function updateInstagramConnectButton() {
-    [elements.archiveButton, elements.archiveRefreshButton, elements.changeProfileButton, elements.demoButton, elements.profileName]
-      .forEach((element) => { element.disabled = collectorState.busy; });
+    renderCounterStatus();
+    const locked = collectorState.busy || collectorState.loggingOut;
+    [elements.archiveButton, elements.archiveRefreshButton, elements.changeProfileButton, elements.demoButton, elements.profileName, elements.logoutButton]
+      .forEach((element) => { element.disabled = locked; });
     const connectionRuntime = isAndroidRuntime || Boolean(window.TakipDesktopCollector);
     elements.instagramConnectButton.hidden = !connectionRuntime;
     elements.refreshButton.hidden = !connectionRuntime;
@@ -565,8 +621,8 @@
     if (remaining) {
       nativeCollector.cooldownTimer = window.setTimeout(updateInstagramConnectButton, Math.min(remaining, 60000));
     }
-    elements.instagramConnectButton.disabled = !nativeCollector.available || collectorState.busy || remaining > 0;
-    elements.refreshButton.disabled = !nativeCollector.available || collectorState.busy || remaining > 0;
+    elements.instagramConnectButton.disabled = !nativeCollector.available || locked || remaining > 0;
+    elements.refreshButton.disabled = !nativeCollector.available || locked || remaining > 0;
     if (collectorState.busy) {
       elements.instagramConnectTitle.textContent = "Instagram taraması sürüyor";
       elements.instagramConnectHint.textContent = "Açılan Instagram ekranını işlem bitene kadar kapatma";
@@ -587,22 +643,22 @@
   }
 
   function initializeScanTempo() {
-    let tempo = "steady";
+    let tempo = "slow";
     try {
-      tempo = localStorage.getItem("takip-atlasi-scan-tempo-v2") || tempo;
+      tempo = localStorage.getItem("takip-atlasi-scan-tempo-v3") || tempo;
     } catch (error) {
-      // Balanced mode applies if preferences cannot be read.
+      // Older aggressive preferences do not override the conservative default.
     }
     selectScanTempo(tempo);
   }
 
   function selectScanTempo(value) {
-    const tempo = ["slow", "steady", "fast"].includes(value) ? value : "steady";
+    const tempo = value === "slower" ? "slower" : "slow";
     nativeCollector.scanTempo = tempo;
     elements.scanTempoSelect.value = tempo;
     elements.dashboardScanTempoSelect.value = tempo;
     try {
-      localStorage.setItem("takip-atlasi-scan-tempo-v2", tempo);
+      localStorage.setItem("takip-atlasi-scan-tempo-v3", tempo);
     } catch (error) {
       // The selected tempo still applies to this session.
     }
@@ -681,7 +737,7 @@
       }
       return;
     }
-    if (collectorState.busy) {
+    if (collectorState.busy || collectorState.loggingOut) {
       return;
     }
 
@@ -703,6 +759,7 @@
     });
 
     try {
+      await pauseCounters();
       const summary = await plugin.collect({ username: requestedUsername || "", tempo: nativeCollector.scanTempo });
       const username = logic.normalizeUsername(summary && summary.username);
       if (!username) {
@@ -737,6 +794,7 @@
         sourceFiles: [isAndroidRuntime ? "Instagram Android oturumu" : "Instagram PC oturumu"],
         foundFollowers: true,
         foundFollowing: true,
+        collection: summary.collection || null,
       };
 
       elements.profileName.value = username;
@@ -750,7 +808,9 @@
       hideError(elements.setupError);
       elements.collectorPanel.hidden = true;
 
-      if (fromDashboard && state.analysis && state.analysis.hasPrevious) {
+      if (state.analysis?.isLimited) {
+        showToast("Erişilen hesaplar sınırlı analiz olarak kaydedildi. Eksik listeler için kesin sonuç üretilmedi.", "!");
+      } else if (fromDashboard && state.analysis && state.analysis.hasPrevious) {
         showToast(
           `Yenileme tamamlandı: ${formatNumber(state.analysis.newFollowers.length)} yeni, ${formatNumber(state.analysis.lostFollowers.length)} ayrılan takipçi.`,
           "↻",
@@ -786,6 +846,7 @@
         await plugin.clearResult().catch(() => {});
       }
       await refreshNativeConnectionStatus();
+      startAutoCounters(!state.counterUserPaused);
     }
   }
 
@@ -847,10 +908,7 @@
     elements.liveFollowingCount.textContent = formatNumber(currentStatus.followingCount);
     const elapsed = Math.max(0, Math.floor((Date.now() - collectorState.startedAt) / 1000));
     const duration = elapsed >= 60 ? `${Math.floor(elapsed / 60)} dk ${elapsed % 60} sn` : `${elapsed} sn`;
-    const size = Number(currentStatus.pageSize) || (nativeCollector.scanTempo === "fast" ? 100 : nativeCollector.scanTempo === "slow" ? 25 : 50);
-    const counters = Number(currentStatus.profilesTotal) > 0
-      ? `${formatNumber(currentStatus.profilesReady)} / ${formatNumber(currentStatus.profilesTotal)} profil takipçi sayısı · ` : "";
-    elements.collectorDetails.textContent = `${counters}${size} hesaplık istek · Geçen süre: ${duration}`;
+    elements.collectorDetails.textContent = `Geçen süre: ${duration}`;
     elements.cancelCollectorButton.hidden = terminal;
     elements.desktopScanButton.hidden = isAndroidRuntime || !collectorState.busy || terminal || currentStatus.phase !== "waiting_login";
     elements.desktopScanButton.disabled = !currentStatus.ready;
@@ -938,7 +996,8 @@
           : Date.now(),
       isDemo: false,
     };
-    const snapshot = logic.createSnapshot(username, dataset);
+    const previous = savedState.snapshots.find((entry) => entry.username === username);
+    const snapshot = logic.createSnapshot(username, window.TakipCounters.reuseCached(dataset, previous));
 
     await storage.saveProfile(profile);
     const snapshots = await storage.addSnapshot(snapshot);
@@ -967,6 +1026,7 @@
     hideError(elements.setupError);
     showLoading("Instagram arşivi okunuyor", "İki takip listesi cihazında doğrulanıyor...");
     try {
+      await pauseCounters();
       await new Promise((resolve) => window.setTimeout(resolve, 0));
       const dataset = await archive.importFiles(files);
       await saveAnalysisDataset(username, dataset);
@@ -993,6 +1053,7 @@
   }
 
   async function startDemo() {
+    await pauseCounters();
     showLoading("Örnek harita kuruluyor", "Renkler ve kategoriler hazırlanıyor...");
     const demo = logic.createDemoData(getValidProfileName());
     await waitForLoadingAnimation();
@@ -1018,6 +1079,10 @@
 
     const enrichmentSnapshotId = `${state.profile.username}:${state.currentSnapshot.id}`;
     if (state.nativeEnrichmentSnapshotId !== enrichmentSnapshotId) {
+      window.clearTimeout(state.counterSaveTimer);
+      state.counterRevision = 0;
+      state.counterSavedRevision = 0;
+      state.counterUserPaused = false;
       state.nativeEnrichmentSnapshotId = enrichmentSnapshotId;
       state.nativeProfilePhotos.clear();
       state.nativePhotoAttempts.clear();
@@ -1040,9 +1105,11 @@
       ...state.analysis.notFollowingBack.slice(0, 4),
     ]);
     window.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
+    startAutoCounters();
   }
 
   function showOnboarding() {
+    pauseCounters();
     elements.dashboardView.hidden = true;
     elements.onboardingView.hidden = false;
     document.body.classList.remove("has-dashboard");
@@ -1072,8 +1139,14 @@
       false,
     );
     elements.sidebarProfileName.textContent = `@${profileName}`;
+    elements.sidebarProfileName.previousElementSibling.textContent = state.profile.isDemo ? "Örnek veri · canlı hesap değil" : "Yerel analiz";
     elements.welcomeName.textContent = profileName.split(/[._]/)[0] || profileName;
     elements.historyCount.textContent = `${state.snapshots.length} kayıt`;
+    const quality = state.currentSnapshot.collection;
+    const expectedTotal = (quality?.followers?.expected || analysis.followers.length) + (quality?.following?.expected || analysis.following.length);
+    elements.healthScore.textContent = String(expectedTotal ? Math.min(100, Math.round((analysis.followers.length + analysis.following.length) / expectedTotal * 100)) : 100);
+    elements.healthText.textContent = analysis.isLimited ? "Yalnızca erişilen hesaplar" : "İki liste doğrulandı";
+    elements.healthText.previousElementSibling.textContent = analysis.isLimited ? "Sınırlı analiz" : "Veri hazır";
 
     countKeys.forEach((key) => {
       const count = analysis[key].length;
@@ -1102,6 +1175,8 @@
     if (analysis.hasPrevious) {
       followersDelta.innerHTML = `<i></i> ${formatSigned(analysis.deltas.followers)} net değişim`;
       followingDelta.innerHTML = `<i></i> ${formatSigned(analysis.deltas.following)} net değişim`;
+      if (!analysis.canCompareFollowers) followersDelta.textContent = "Eksik liste · değişim hesaplanmadı";
+      if (!analysis.canCompareFollowing) followingDelta.textContent = "Eksik liste · değişim hesaplanmadı";
       mutualDelta.innerHTML = `<i></i> ${formatNumber(analysis.mutual.length)} güçlü bağ`;
       notFollowingDelta.innerHTML = `<i></i> ${formatNumber(analysis.notFollowingBack.length)} tek yönlü takip`;
     } else {
@@ -1132,6 +1207,10 @@
       elements.pulseSummary.textContent = "Bir sonraki yenilemede değişimleri burada göreceksin.";
       return;
     }
+    if (!analysis.canCompareFollowers) {
+      elements.pulseSummary.textContent = "Eksik takipçi listelerinden takipten çıkma veya yeni takipçi sonucu üretilmez.";
+      return;
+    }
 
     const newCount = analysis.newFollowers.length;
     const lostCount = analysis.lostFollowers.length;
@@ -1146,6 +1225,10 @@
   function renderAttentionPeople() {
     const people = state.analysis.notFollowingBack.slice(0, 4);
     if (!people.length) {
+      if (state.analysis.isLimited) {
+        elements.attentionPeople.innerHTML = '<div class="empty-mini"><strong>Sınırlı kayıt</strong><span>Eksik listelerde kesin ilişki özeti gösterilmez.</span></div>';
+        return;
+      }
       elements.attentionPeople.innerHTML = `
         <div class="empty-mini">
           <strong>Harika bir denge!</strong>
@@ -1240,6 +1323,14 @@
       .map((person, index) => personCardMarkup(person, index, !skipPhotoRequest))
       .join("");
 
+    const pending = followerFilterActive() ? queryMatches.filter((person) =>
+      !Number.isFinite(person.followerCount) && matchesAdvancedFilters(person, { ignoreFollowers: true })) : [];
+    const waiting = pending.filter((person) => state.counterLoader?.recordState(person.username) !== "unavailable");
+    elements.pendingCounters.hidden = pending.length === 0;
+    elements.pendingCounterText.textContent = waiting.length
+      ? `${formatNumber(pending.length)} hesabın takipçi sayısı eksik. Bu hesapların filtreye uyup uymadığı henüz bilinmiyor.`
+      : `${formatNumber(pending.length)} hesabın sayısına ulaşılamadı; sayısal sonuçlara dahil edilmedi. Sayaç panelinden tekrar deneyebilirsin.`;
+    elements.pendingCounterPeople.textContent = pending.slice(0, 8).map((person) => `@${person.username}`).join(" · ") + (pending.length > 8 ? " · …" : "");
     const isEmpty = !filtered.length;
     elements.emptyState.hidden = !isEmpty;
     if (isEmpty) {
@@ -1248,10 +1339,9 @@
       elements.emptyText.textContent = hasFilters
         ? "Aramayı veya gelişmiş filtreleri temizleyip tekrar dene."
         : emptyCategoryMessage(state.category);
-      if (state.category === "notFollowingBack" && followerFilterActive() &&
-        queryMatches.some((person) => !Number.isFinite(personDetails(person).followerCount))) {
-        elements.emptyTitle.textContent = "Bu aralıkta bilinen takipçi sayısı yok";
-        elements.emptyText.textContent = "Instagram'ın sayacını paylaşmadığı hesaplar sayı filtresine dahil edilmez. Tüm hesaplar için filtreyi temizle.";
+      if (pending.length) {
+        elements.emptyTitle.textContent = waiting.length ? "Filtre sonuçları henüz tamamlanmadı" : "Bilinen sayılarda eşleşme yok";
+        elements.emptyText.textContent = "Sayısı eksik olan hesaplar ayrı alanda gösterilir; bu hesaplar için kesin eşleşme sonucu verilmez.";
       }
     }
 
@@ -1264,6 +1354,7 @@
     const visibleNames = new Set(visible.map((person) => person.username));
     const listPeople = [...visible, ...queryMatches.filter((person) => !visibleNames.has(person.username))];
     state.listPeople = listPeople;
+    state.counterLoader?.prioritize(listPeople);
     if (!skipPhotoRequest) {
       requestNativeProfilePhotos(visible);
     }
@@ -1275,14 +1366,10 @@
   }
 
   function hasCompleteDetails(person) {
-    const details = personDetails(person);
-    if (state.category === "notFollowingBack") return Number.isFinite(details.followerCount);
-    return [details.followerCount, details.followingCount, details.postCount].every(
-      (value) => Number.isFinite(value),
-    );
+    return Number.isFinite(personDetails(person).followerCount);
   }
 
-  function matchesAdvancedFilters(person) {
+  function matchesAdvancedFilters(person, options = {}) {
     const filters = state.filters;
     const details = personDetails(person);
     const followerCount = Number.isFinite(details.followerCount) ? details.followerCount : null;
@@ -1290,13 +1377,13 @@
       state.nativeProfilePhotos.get(person.username) || logic.normalizeProfilePicUrl(person.profilePicUrl),
     );
 
-    if (filters.relationship === "mutual" && !(person.isFollower && person.isFollowing)) {
+    if (filters.relationship === "mutual" && !(person.isFollower === true && person.isFollowing === true)) {
       return false;
     }
-    if (filters.relationship === "follows-you" && !(person.isFollower && !person.isFollowing)) {
+    if (filters.relationship === "follows-you" && !(person.isFollower === true && person.isFollowing === false)) {
       return false;
     }
-    if (filters.relationship === "you-follow" && !(!person.isFollower && person.isFollowing)) {
+    if (filters.relationship === "you-follow" && !(person.isFollower === false && person.isFollowing === true)) {
       return false;
     }
     if (filters.relationship === "new" && person.change !== "newFollower") {
@@ -1317,6 +1404,7 @@
     if (filters.photo === "without" && hasPhoto) {
       return false;
     }
+    if (options.ignoreFollowers === true) return true;
     if (filters.audience !== "all") {
       if (followerCount === null) {
         return false;
@@ -1446,7 +1534,7 @@
     const safeUsername = escapeHtml(person.username);
     const delay = Math.min(index, 14) * 32;
     const profileUrl = `https://www.instagram.com/${encodeURIComponent(person.username)}/`;
-    const compact = state.category === "notFollowingBack" || state.category === "favorites";
+    const compact = !["newFollowers", "lostFollowers"].includes(state.category);
     const favorite = state.favorites.has(person.username);
 
     return `
@@ -1481,6 +1569,7 @@
       return `<span class="status-badge status-badge--cyan">Yeni takipçi</span>${secondBadge}`;
     }
 
+    if (person.relationshipUnknown) return '<span class="status-badge">İlişki doğrulanamadı</span>';
     if (person.isFollower && person.isFollowing) {
       return '<span class="status-badge status-badge--lime">Karşılıklı</span>';
     }
@@ -1493,6 +1582,7 @@
   }
 
   function relationshipLabel(person) {
+    if (person.relationshipUnknown) return "Eksik liste · kesin değil";
     if (person.favoriteOnly) return "Güncel listede yok";
     if (person.change === "lostFollower") {
       return "Önceki kayıtta vardı";
@@ -1537,15 +1627,14 @@
   }
 
   function followerStatsMarkup(person) {
-    if (state.profile && state.profile.isDemo) return '<div class="person-card__followers">Örnek hesap · canlı sayaç yok</div>';
     const count = personDetails(person).followerCount;
     return Number.isFinite(count)
       ? `<div class="person-card__followers" title="${formatNumber(count)} takipçi"><b>${formatNumber(count)}</b> takipçi</div>`
-      : '<div class="person-card__followers is-unavailable">Takipçi sayısı paylaşılmadı</div>';
+      : `<div class="person-card__followers is-pending">${state.counterLoader?.recordState(person.username) === "unavailable" ? "Sayı alınamadı · tekrar denenebilir" : "Takipçi sayısı yükleniyor"}</div>`;
   }
 
   async function requestNativeProfilePhotos(people) {
-    if (collectorState.busy || document.hidden) {
+    if (collectorState.busy || collectorState.loggingOut || document.hidden) {
       return;
     }
     const plugin = nativeCollector.plugin;
@@ -1620,7 +1709,7 @@
       const pendingPeople = state.nativePendingPhotoPeople;
       state.nativePendingPhotoPeople = [];
       if (pendingPeople.length) {
-        window.setTimeout(() => requestNativeProfilePhotos(pendingPeople), 100);
+        window.setTimeout(() => { if (snapshotId === state.nativeEnrichmentSnapshotId) requestNativeProfilePhotos(pendingPeople); }, 100);
         return;
       }
       const hasMore = people.some((person) =>
@@ -1629,7 +1718,7 @@
         !state.nativePhotoAttempts.has(person.username),
       );
       if (hasMore) {
-        window.setTimeout(() => requestNativeProfilePhotos(people), 250);
+        window.setTimeout(() => { if (snapshotId === state.nativeEnrichmentSnapshotId) requestNativeProfilePhotos(people); }, 250);
       }
     }
   }
@@ -1677,11 +1766,143 @@
     const ready = people.filter((person) => Number.isFinite(personDetails(person).followerCount)).length;
     elements.listDetailStatus.hidden = ready === people.length || Boolean(state.profile?.isDemo);
     elements.listDetailStatus.textContent = ready
-      ? `${formatNumber(ready)}/${formatNumber(people.length)} takipçi sayısı taramada alındı · kalan sayaçlar paylaşılmadı`
-      : "Bu kayıtta profil takipçi sayıları yok. Bir sonraki Instagram taramasında otomatik alınır.";
+      ? `${formatNumber(ready)}/${formatNumber(people.length)} takipçi sayısı hazır`
+      : "Takipçi sayıları otomatik tamamlanıyor";
+  }
+
+  function ensureCounterLoader() {
+    if (state.counterLoader) return state.counterLoader;
+    state.counterLoader = window.TakipCounters.createLoader({
+      fetchBatch: (records) => nativeCollector.plugin.requestMetadata({
+        records: records.map((record) => ({ username: record.username, instagramUserId: record.instagramUserId })), followerOnly: true,
+      }),
+      cancel: () => nativeCollector.plugin?.cancelEnrichment?.(),
+      blockedUntil: () => nativeCollector.blockedUntil,
+      onRecords: applyCounterRecords,
+      onStatus: (status) => {
+        state.counterStatus = status;
+        if (status.phase === "blocked") {
+          nativeCollector.blockedUntil = Math.max(nativeCollector.blockedUntil, status.blockedUntil);
+          updateInstagramConnectButton();
+        }
+        renderCounterStatus();
+        if (["partial", "session", "error", "blocked", "paused", "complete"].includes(status.phase) &&
+          status.scope === state.nativeEnrichmentSnapshotId && state.analysis && state.category !== "overview") renderList(true);
+      },
+    });
+    return state.counterLoader;
+  }
+
+  function startAutoCounters(resume = false) {
+    if (!state.analysis || state.profile?.isDemo || collectorState.busy || collectorState.loggingOut || document.hidden || elements.dashboardView.hidden) {
+      renderCounterStatus();
+      return;
+    }
+    if (!nativeCollector.plugin?.requestMetadata) {
+      state.counterStatus = { phase: "session", total: state.analysis.all.length,
+        ready: state.analysis.all.filter(hasCompleteDetails).length, pending: state.analysis.all.filter((person) => !hasCompleteDetails(person)).length, unavailable: 0 };
+      renderCounterStatus();
+      return;
+    }
+    const loader = ensureCounterLoader();
+    const scope = state.nativeEnrichmentSnapshotId;
+    loader.configure(state.analysis.all, scope);
+    loader.prioritize(state.category === "overview" ? state.analysis.notFollowingBack : state.listPeople);
+    if (state.counterAutoScope !== scope || resume) {
+      state.counterAutoScope = scope;
+      state.counterUserPaused = false;
+      loader.start();
+    }
+    renderCounterStatus();
+  }
+
+  function renderCounterStatus() {
+    if (!elements.counterPanel) return;
+    const status = state.counterStatus;
+    elements.counterPanel.hidden = !state.analysis || Boolean(state.profile?.isDemo);
+    elements.scanNotice.hidden = !state.analysis?.isLimited;
+    if (state.analysis?.isLimited) {
+      const labels = { followers: "takipçi", following: "takip edilen" };
+      const parts = Object.entries(labels).filter(([key]) => !state.analysis.completeness[key]).map(([key, label]) => {
+        const quality = state.currentSnapshot.collection?.[key];
+        return `${formatNumber(quality?.observed ?? state.analysis[key].length)}/${formatNumber(quality?.expected ?? state.analysis[key].length)} ${label}`;
+      });
+      elements.scanNotice.textContent = `Sınırlı analiz · ${parts.join(" · ")}. Sayılar yalnızca erişilen hesapları kapsar; eksik listeye dayalı kesin ilişki ve değişim sonucu verilmez.`;
+    }
+    const total = status.total || state.analysis?.all.length || 0;
+    const ready = status.ready || 0;
+    const messages = {
+      idle: "Takipçi sayıları hazırlanıyor", loading: "Takipçi sayıları tamamlanıyor", paused: "Sayaç yükleme duraklatıldı",
+      session: "Takipçi sayıları için Instagram oturumu gerekli", error: "Sayaç bağlantısı tamamlanamadı",
+      blocked: "Instagram bekleme süresi uygulanıyor", complete: "Takipçi sayıları hazır", partial: "Bazı profil sayılarına ulaşılamadı",
+    };
+    elements.counterPanel.dataset.phase = status.phase;
+    elements.counterStatusText.textContent = `${messages[status.phase] || messages.idle} · ${formatNumber(ready)}/${formatNumber(total)}`;
+    elements.counterStatusHint.textContent = status.phase === "blocked"
+      ? `Yaklaşık ${Math.max(1, Math.ceil((Math.max(status.blockedUntil || 0, nativeCollector.blockedUntil) - Date.now()) / 60000))} dakika bekleniyor.`
+      : status.phase === "session" ? "Listelerini yenileyerek oturumu bağla; kayıtlı analizlerin korunur."
+      : status.phase === "partial" ? `${formatNumber(status.unavailable)} hesap için tekrar deneyebilirsin; eksik değerler sıfır sayılmaz.`
+      : "Liste taraması bitti. Sayaçlar listeyi bekletmeden güncellenir; filtreler de otomatik yenilenir.";
+    elements.counterProgressBar.style.width = `${total ? Math.round(ready / total * 100) : 0}%`;
+    elements.counterActionButton.textContent = status.phase === "loading" ? "Durdur" : status.phase === "session" ? "Bağlan" : status.phase === "paused" ? "Devam et" : "Tekrar dene";
+    elements.counterActionButton.hidden = status.phase === "complete";
+    elements.counterActionButton.disabled = collectorState.busy || collectorState.loggingOut ||
+      Math.max(status.blockedUntil || 0, nativeCollector.blockedUntil) > Date.now();
+  }
+
+  async function handleCounterAction() {
+    if (state.counterStatus.phase === "loading") {
+      state.counterUserPaused = true;
+      await pauseCounters();
+    } else if (state.counterStatus.phase === "session") openRefreshDialog();
+    else {
+      state.counterUserPaused = false;
+      state.counterLoader?.start(true);
+      if (!state.counterLoader) startAutoCounters(true);
+    }
+  }
+
+  function applyCounterRecords(records, scope) {
+    if (scope !== state.nativeEnrichmentSnapshotId || !state.currentSnapshot || collectorState.busy || collectorState.loggingOut) return;
+    const entries = new Map(records.map((record) => [record.username, record]));
+    const merge = (record) => {
+      const entry = entries.get(record.username);
+      if (!entry || record.instagramUserId && record.instagramUserId !== entry.instagramUserId) return record;
+      return { ...record, instagramUserId: entry.instagramUserId || record.instagramUserId,
+        profilePicUrl: logic.normalizeProfilePicUrl(entry.profilePicUrl) || record.profilePicUrl,
+        followerCount: entry.followerCount, followingCount: logic.normalizeAccountCount(entry.followingCount) ?? record.followingCount,
+        postCount: logic.normalizeAccountCount(entry.postCount) ?? record.postCount, countsUpdatedAt: entry.countsUpdatedAt };
+    };
+    state.currentSnapshot.followers = state.currentSnapshot.followers.map(merge);
+    state.currentSnapshot.following = state.currentSnapshot.following.map(merge);
+    state.analysis = logic.analyzeDataset(state.currentSnapshot, state.previousSnapshot);
+    syncFavorites();
+    state.counterRevision += 1;
+    window.clearTimeout(state.counterSaveTimer);
+    state.counterSaveTimer = window.setTimeout(() => saveCounterSnapshot(), 500);
+    if (state.category !== "overview") renderList(true);
+    renderAttentionPeople();
+  }
+
+  async function saveCounterSnapshot() {
+    const snapshot = state.currentSnapshot;
+    const scope = state.nativeEnrichmentSnapshotId;
+    const revision = state.counterRevision;
+    if (!snapshot || state.profile?.isDemo || revision <= state.counterSavedRevision) return;
+    try {
+      await storage.addSnapshot(snapshot);
+      if (scope === state.nativeEnrichmentSnapshotId) state.counterSavedRevision = Math.max(state.counterSavedRevision, revision);
+    } catch (error) { showToast("Sayaçlar bu oturumda görünüyor; cihazına kaydedilemedi.", "!"); }
+  }
+
+  async function pauseCounters(save = true) {
+    window.clearTimeout(state.counterSaveTimer);
+    await state.counterLoader?.pause();
+    if (save) await saveCounterSnapshot();
   }
 
   function emptyCategoryMessage(category) {
+    if (state.analysis.isLimited) return "Eksik liste nedeniyle bu bölüm için kesin sonuç verilemiyor. Yalnızca doğrulanan ilişkiler gösterilir.";
     const messages = {
       notFollowingBack: "Takip ettiğin herkes seni de takip ediyor. Güzel denge!",
       youDontFollowBack: "Seni takip edip senin takip etmediğin hesap yok.",
@@ -1723,6 +1944,7 @@
   }
 
   function openFilterDialog() {
+    hideError(elements.filterError);
     const simpleList = state.category === "notFollowingBack";
     [elements.relationshipFilter, elements.detailsFilter, elements.photoFilter].forEach((field) => {
       field.closest("label").hidden = simpleList;
@@ -1754,6 +1976,10 @@
   }
 
   function applyFilterDialog() {
+    if (![elements.minFollowersFilter, elements.maxFollowersFilter].every((field) => field.validity.valid)) {
+      showError(elements.filterError, "Takipçi sınırlarına 0 ile 5.000.000.000 arasında tam sayı yaz.");
+      return;
+    }
     let minimum = parseFilterNumber(elements.minFollowersFilter.value);
     let maximum = parseFilterNumber(elements.maxFollowersFilter.value);
     if (minimum !== null && maximum !== null && minimum > maximum) {
@@ -1811,11 +2037,52 @@
     showToast("Kayıtların telefonunda korunuyor.", "🔒");
   }
 
+  async function logoutInstagram() {
+    if (collectorState.busy || collectorState.loggingOut) return;
+    collectorState.loggingOut = true;
+    updateInstagramConnectButton();
+    try {
+      await pauseCounters();
+      if (nativeCollector.plugin) await nativeCollector.plugin.clearSession();
+      await storage.saveProfile(null);
+      state.nativeEnrichmentSnapshotId = "";
+      state.nativeProfilePhotos.clear();
+      state.nativePhotoAttempts.clear();
+      state.nativePendingPhotoPeople = [];
+      state.profile = null;
+      state.counterAutoScope = "";
+      state.snapshots = [];
+      state.analysis = null;
+      state.currentSnapshot = null;
+      state.previousSnapshot = null;
+      state.favorites.clear();
+      state.favoritesProfile = "";
+      state.listPeople = [];
+      state.category = "overview";
+      state.search = "";
+      elements.searchInput.value = "";
+      elements.peopleGrid.innerHTML = "";
+      elements.profileName.value = "";
+      elements.collectorPanel.hidden = true;
+      hideError(elements.setupError);
+      updateSetupValidity();
+      showOnboarding();
+      showToast("Instagram oturumu kapatıldı. Analizlerin cihazında saklandı.", "✓");
+    } catch (error) {
+      showToast("Hesaptan çıkış tamamlanamadı. Tekrar dene.", "!");
+    } finally {
+      collectorState.loggingOut = false;
+      await refreshNativeConnectionStatus();
+      updateInstagramConnectButton();
+    }
+  }
+
   async function deleteLocalData() {
     elements.confirmDialog.close();
     showLoading("Yerel kasa temizleniyor", "Takip kayıtları bu cihazdan kaldırılıyor...");
 
     try {
+      await pauseCounters(false);
       const forgetInstagramSession = nativeCollector.plugin
         ? nativeCollector.plugin.clearSession().catch(() => null)
         : Promise.resolve();
@@ -2060,7 +2327,7 @@
     messageElement.textContent = message;
 
     toast.append(iconElement, messageElement);
-    while (elements.toastRegion.childElementCount >= 2) elements.toastRegion.firstElementChild.remove();
+    while (elements.toastRegion.childElementCount >= 1) elements.toastRegion.firstElementChild.remove();
     elements.toastRegion.appendChild(toast);
 
     window.setTimeout(() => {

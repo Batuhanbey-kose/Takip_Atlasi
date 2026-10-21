@@ -43,7 +43,7 @@ async function build() {
   for (const [name, bytes] of Object.entries(entries)) {
     fs.writeFileSync(path.join(destination, "runtime", path.basename(name)), bytes);
   }
-  fs.writeFileSync(path.join(destination, "KULLANIM.txt"), "ZIP'in tamamini bir klasore cikart ve Takip-Atlasi-PC.bat dosyasina cift tikla.\r\nEdge veya Chrome kurulu olmali. Node/npm kurmana gerek yok.\r\nGiris acilan gercek Instagram penceresindedir; sonra uygulamada Listeleri tara dugmesine bas.\r\nProfil takipci sayilari ayni taramada otomatik hazirlanir. Dengeli tempo 50, Hizli tempo 100 hesap ister.\r\nYildizli hesaplarini saklayabilir ve filtrelenmis listenin tamamini kopyalayabilirsin.\r\n");
+  fs.writeFileSync(path.join(destination, "KULLANIM.txt"), "ZIP'in tamamini bir klasore cikart ve Takip-Atlasi-PC.bat dosyasina cift tikla.\r\nEdge veya Chrome kurulu olmali. Node/npm kurmana gerek yok.\r\nGiris acilan gercek Instagram penceresindedir; sonra uygulamada Listeleri tara dugmesine bas.\r\nListeler 12 hesaplik sayfalarla, temkinli araliklarla okunur. Profil sayaclari birer birer hazirlanir.\r\nEksik liste olursa sinirli analiz uyarisini kontrol et. Yildizli hesaplarini saklayabilir ve filtrelenmis listenin tamamini kopyalayabilirsin.\r\n");
   const files = {};
   const collect = (directory, relative = "") => {
     for (const name of fs.readdirSync(directory)) {

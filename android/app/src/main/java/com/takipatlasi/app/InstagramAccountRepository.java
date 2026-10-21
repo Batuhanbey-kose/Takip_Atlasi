@@ -43,7 +43,7 @@ final class InstagramAccountRepository {
 
     private static final String APP_ID = "936619743392459";
     private static final String INSTAGRAM_ORIGIN = "https://www.instagram.com";
-    private static final int MAX_METADATA_BATCH = 4;
+    private static final int MAX_METADATA_BATCH = 1;
     private static final int METADATA_WORKERS = 1;
     private static final int MAX_PHOTO_BATCH = 48;
     private static final int MAX_JSON_BYTES = 512 * 1024;

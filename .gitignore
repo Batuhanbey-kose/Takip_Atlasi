@@ -7,6 +7,24 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.key
+.env
+.env.*
+!.env.example
+**/keystore.properties
+
+# Local diagnostics and unapplied work are not release/source assets.
+/scripts/inspect-instagram-login.js
+/scripts/inspect-live-desktop.js
+/scripts/launch-live-desktop-test.js
+/scripts/live-desktop-test.js
+/takip-atlasi-notifications.patch
 
 android/.gradle/
 android/local.properties

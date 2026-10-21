@@ -10,6 +10,57 @@ async function settleLayout(page) {
     .map((animation) => animation.finished.catch(() => {}))));
 }
 
+async function verifyLayouts(page) {
+  const layouts = ["atlas", "bento", "glass", "editorial", "compact", "gallery", "terminal", "dashboard", "ribbon", "focus"];
+  const themes = ["atlas", "ocean", "forest", "sunset", "sakura", "lavender", "mono", "midnight", "aurora", "amoled"];
+  const signatures = new Set();
+  for (let index = 0; index < layouts.length; index += 1) {
+    const layout = layouts[index];
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.locator("#appearanceButton").click();
+    await page.locator(`[data-layout-option="${layout}"]`).click();
+    await page.locator("#themeDialog").waitFor({ state: "hidden" });
+    await page.locator("#appearanceButton").click();
+    await page.locator(`[data-theme-option="${themes[index]}"]`).click();
+    await page.locator("#themeDialog").waitFor({ state: "hidden" });
+    await settleLayout(page);
+    signatures.add(await page.evaluate(() => {
+      const card = document.querySelector(".person-card");
+      const grid = getComputedStyle(document.querySelector("#peopleGrid"));
+      const css = getComputedStyle(card);
+      const main = getComputedStyle(document.querySelector("#dashboardMain"));
+      return JSON.stringify([grid.gridTemplateColumns, grid.gap, css.display, css.borderRadius, css.backdropFilter,
+        css.fontFamily, main.display, main.maxWidth, card.getBoundingClientRect().width,
+        getComputedStyle(document.querySelector(".category-ribbon")).display]);
+    }));
+    for (const width of [320, 390, 430]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.waitForFunction(() => document.querySelector("#sidebar").getBoundingClientRect().right <= 0);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${layout} overflows at ${width}px`);
+      assert.equal(await page.locator("#appearanceButton").isVisible(), true);
+      assert.ok(await page.locator("#peopleGrid .person-card").count() > 0);
+      const target = await page.locator(".favorite-button").first().boundingBox();
+      assert.ok(target.width >= 43.9 && target.height >= 43.9, `${layout} touch target: ${JSON.stringify(target)}`);
+      if (width === 390 && process.env.ATLAS_LAYOUT_SCREENSHOT_DIR) {
+        await settleLayout(page);
+        await page.screenshot({ path: require("node:path").join(process.env.ATLAS_LAYOUT_SCREENSHOT_DIR, `atlas-design-${layout}.png`) });
+      }
+    }
+  }
+  assert.equal(signatures.size, 10, "Designs must have different rendered structures");
+  await page.reload();
+  await page.locator("#dashboardView").waitFor({ state: "visible" });
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.layout), "focus");
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "amoled");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.locator("#appearanceButton").click();
+  await page.locator('[data-layout-option="atlas"]').click();
+  await page.locator("#appearanceButton").click();
+  await page.locator('[data-theme-option="atlas"]').click();
+  await page.locator('[data-category="following"]').first().click();
+  console.log("10 farklı render düzeni ve 10 tema; 320/390/430px, dokunma alanları ve tercihler doğrulandı.");
+}
+
 async function verifyDesktopScan(browser) {
   const collector = new DesktopCollector({ stateFile: null });
   const context = await browser.newContext();
@@ -40,7 +91,7 @@ async function verifyDesktopScan(browser) {
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) });
     });
     const opened = context.waitForEvent("page");
-    collector.start({ username: "test.owner", tempo: "fast" });
+    collector.start({ username: "test.owner", tempo: "slow" });
     const page = await opened;
     for (let attempt = 0; attempt < 100 && collector.state.phase !== "waiting_login"; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(collector.state.phase, "waiting_login");
@@ -51,12 +102,15 @@ async function verifyDesktopScan(browser) {
     for (let attempt = 0; attempt < 200 && !["complete", "error"].includes(collector.state.phase); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(collector.state.phase, "complete", JSON.stringify(collector.state.error));
     assert.equal(collector.readResult("following").records.find((record) => record.username === "alpha").followerCount, 9);
-    assert.equal(collector.readResult("following").records.find((record) => record.username === "beta").followerCount, 0);
-    assert.equal(collector.summary.profilesReady, 2);
-    assert.ok(requests.filter((request) => request.kind === "list").every((request) => request.count === "100"));
+    assert.equal(collector.readResult("following").records.find((record) => record.username === "beta").followerCount, null);
+    assert.equal(collector.summary.profilesReady, 1);
+    assert.ok(requests.filter((request) => request.kind === "list").every((request) => request.count === "12"));
+    assert.equal(requests.filter((request) => request.kind === "profile" && request.id !== "999").length, 0);
+    const metadata = await collector.requestMetadata([{ username: "beta", instagramUserId: "2" }], true);
+    assert.equal(metadata.records[0]?.username, "beta");
+    assert.equal(metadata.records[0]?.followerCount, 0);
     assert.equal(requests.filter((request) => request.kind === "profile" && request.id === "2").length, 1);
-    assert.equal(requests.find((request) => request.id === "2").headers["x-asbd-id"], "129477");
-    console.log("Gerçek tarayıcı + taklit Instagram yanıtları: PC giriş köprüsü, belge başlangıcı gözlemcisi, 100'lük tarama ve aynı akışta profil sayaçları başarılı.");
+    console.log("Gerçek tarayıcı + taklit Instagram: liste taraması kişisel profil sorguları beklemeden tamamlandı.");
   } finally {
     collector.browser = null;
     await collector.close();
@@ -92,6 +146,7 @@ async function main() {
       })),
     });
     const chooserPromise = page.waitForEvent("filechooser");
+    await page.locator(".archive-options > summary").click();
     await page.locator("#archiveButton").click();
     const chooser = await chooserPromise;
     await chooser.setFiles({ name: "instagram.zip", mimeType: "application/zip", buffer: Buffer.from(zip) });
@@ -111,13 +166,13 @@ async function main() {
 
     await page.locator('[data-category="notFollowingBack"]').first().click();
     await page.locator("[data-toggle-favorite='carol']").click();
-    await page.locator('[data-category="favorites"]').click();
+    await page.locator('[data-category="favorites"]').first().click();
     assert.match(await page.locator("#peopleGrid").innerText(), /@carol/);
     await page.locator("#densityButton").click();
     await page.reload();
     await page.locator("#dashboardView").waitFor({ state: "visible" });
     assert.equal(await page.evaluate(() => document.body.dataset.listDensity), "comfortable");
-    await page.locator('[data-category="favorites"]').click();
+    await page.locator('[data-category="favorites"]').first().click();
     assert.equal(await page.locator("#peopleGrid .favorite-button[aria-pressed='true']").count(), 1);
     await page.locator("#densityButton").click();
     await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("Pano engellendi"); } } }));
@@ -141,21 +196,24 @@ async function main() {
     assert.equal(await page.locator("#copyText").inputValue(), "@wide.59");
     await page.locator("#copyDialog [data-close-dialog]").click();
     await page.locator("#clearSearchButton").click();
-    for (const theme of ["aurora", "amoled", "coffee", "cyber"]) {
-      await page.locator("#themeButton").click();
+    const themeIds = ["atlas", "ocean", "forest", "sunset", "sakura", "lavender", "mono", "midnight", "aurora", "amoled"];
+    for (const theme of themeIds) {
+      await page.locator("#appearanceButton").click();
+      assert.equal(await page.locator("[data-theme-option]").count(), 10);
+      assert.equal(await page.locator("[data-layout-option]").count(), 10);
       await page.locator(`[data-theme-option="${theme}"]`).click();
       await page.waitForFunction((value) => document.documentElement.dataset.theme === value, theme);
       await page.locator("#themeDialog").waitFor({ state: "hidden" });
-      assert.equal(await page.evaluate(() => document.documentElement.dataset.themeMode), theme === "coffee" ? "light" : "dark");
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.themeMode), ["midnight", "aurora", "amoled"].includes(theme) ? "dark" : "light");
     }
     await page.reload();
     await page.locator("#dashboardView").waitFor({ state: "visible" });
-    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "cyber");
-    await page.locator('[data-category="favorites"]').click();
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "amoled");
+    await page.locator('[data-category="favorites"]').first().click();
     assert.match(await page.locator("#peopleGrid").innerText(), /@carol/);
     assert.match(await page.locator("#peopleGrid .status-badge").textContent(), /Bu kayıtta yok/);
     if (process.env.ATLAS_THEME_SCREENSHOT) { await settleLayout(page); await page.screenshot({ path: process.env.ATLAS_THEME_SCREENSHOT }); }
-    console.log("Yıldızlılar, 60 hesabın tamamını/arama sonucunu kopyalama, görünüm ve dört yeni tema kalıcı olarak doğrulandı.");
+    console.log("Yıldızlılar, bütün filtrelenmiş listeyi kopyalama ve 10 renk teması doğrulandı.");
 
     const nativeContext = await browser.newContext();
     await nativeContext.addInitScript(() => {
@@ -173,7 +231,9 @@ async function main() {
             localStorage.removeItem("mock-scan-success");
             listener({ phase: "followers", message: "Listeler ve profil takipçi sayıları toplanıyor", progress: 40, followersCount: 2, followingCount: 0, profilesReady: 2, profilesTotal: 3, pageSize: 100 });
             await new Promise((resolve) => { window.__finishMockScan = resolve; });
-            return { username: options.username, followersCount: 2, followingCount: 2, profilesReady: 3, profilesTotal: 3 };
+            localStorage.setItem("mock-session-connected", "1");
+            return { username: options.username, followersCount: 2, followingCount: 2, profilesReady: 0, profilesTotal: 3,
+              collection: { followers: { expected: 2, complete: true }, following: { expected: 3, complete: false } } };
           }
           localStorage.setItem("mock-blocked-until", String(Date.now() + 900000));
           const error = new Error("Instagram istekleri geçici olarak sınırladı (HTTP 429). Tarama durduruldu.");
@@ -181,16 +241,31 @@ async function main() {
           error.data = { retryAfterMs: 900000 };
           throw error;
         },
-        requestMetadata: async () => {
+        requestMetadata: async ({ records, followerOnly }) => {
           localStorage.setItem("mock-metadata-count", String(Number(localStorage.getItem("mock-metadata-count") || 0) + 1));
-          throw new Error("Sonuç ekranı bağımsız sayaç isteği göndermemeli");
+          localStorage.setItem("mock-follower-only", String(followerOnly));
+          if (records.length !== 1) throw new Error("Hesaplar birer birer istenmeli");
+          if (localStorage.getItem("mock-session-connected") !== "1") return { records: [], sessionRequired: true };
+          const result = { records: records.map((record) => ({ ...record,
+            followerCount: ({ alice: 1200, bob: 0, carol: 2 })[record.username] ?? 7, updatedAt: Date.now() })) };
+          if (localStorage.getItem("mock-auto-counters") === "1") return result;
+          return new Promise((resolve) => {
+            window.__cancelCounterBatch = () => resolve({ records: [] });
+            window.__finishCounterBatch = () => { localStorage.setItem("mock-auto-counters", "1"); resolve(result); };
+          });
         },
         readResult: async ({ relationship }) => ({ records: relationship === "followers"
-          ? [{ username: "alice", instagramUserId: "1", followerCount: 10 }, { username: "bob", instagramUserId: "2", followerCount: 3 }]
-          : [{ username: "bob", instagramUserId: "2", followerCount: 3 }, { username: "carol", instagramUserId: "3", followerCount: 2 }], total: 2, done: true }),
-        cancelEnrichment: async () => {},
+          ? [{ username: "alice", instagramUserId: "1" }, { username: "bob", instagramUserId: "2" }]
+          : [{ username: "bob", instagramUserId: "2" }, { username: "carol", instagramUserId: "3" }], total: 2, done: true }),
+        cancelEnrichment: async () => { window.__cancelCounterBatch?.(); },
         clearResult: async () => {},
-        clearSession: async () => {},
+        clearSession: async () => {
+          localStorage.setItem("mock-session-clear-count", String(Number(localStorage.getItem("mock-session-clear-count") || 0) + 1));
+          if (localStorage.getItem("mock-logout-fail") === "1") {
+            localStorage.removeItem("mock-logout-fail");
+            throw new Error("Simulated logout failure");
+          }
+        },
       };
       window.Capacitor = {
         isNativePlatform: () => true,
@@ -203,37 +278,74 @@ async function main() {
     nativePage.on("pageerror", (error) => errors.push(error.message));
     await nativePage.goto(`http://127.0.0.1:${server.address().port}`);
     await nativePage.locator("#profileName").fill("test.owner");
-    assert.equal(await nativePage.locator("#scanTempoSelect").inputValue(), "steady");
-    await nativePage.locator("#scanTempoSelect").selectOption("fast");
+    assert.equal(await nativePage.locator("#scanTempoSelect").inputValue(), "slow");
+    await nativePage.locator("#scanTempoPanel > summary").click();
+    await nativePage.locator("#scanTempoSelect").selectOption("slower");
     const nativeChooserPromise = nativePage.waitForEvent("filechooser");
+    await nativePage.locator(".archive-options > summary").click();
     await nativePage.locator("#archiveButton").click();
     await (await nativeChooserPromise).setFiles({ name: "instagram.zip", mimeType: "application/zip", buffer: Buffer.from(zip) });
     await nativePage.locator("#dashboardView").waitFor({ state: "visible" });
     await nativePage.locator('[data-category="notFollowingBack"]').first().click();
     await nativePage.locator("#sortSelect").selectOption("followers-desc");
-    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-metadata-count")), null);
+    await nativePage.waitForFunction(() => document.querySelector("#counterPanel").dataset.phase === "session");
+    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-metadata-count")), "1");
     assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-collect-count")), null);
     assert.equal(await nativePage.locator("#loadAccountDetailsButton").count(), 0);
     await nativePage.evaluate(() => localStorage.setItem("mock-scan-success", "1"));
     await nativePage.locator("#refreshButton").click();
     await nativePage.locator("#dashboardMain #collectorPanel").waitFor({ state: "visible" });
-    assert.match(await nativePage.locator("#collectorDetails").innerText(), /2 \/ 3 profil takipçi sayısı/);
+    assert.match(await nativePage.locator("#collectorDetails").innerText(), /Geçen süre/);
+    assert.doesNotMatch(await nativePage.locator("#collectorDetails").innerText(), /profil takipçi/);
     assert.equal(await nativePage.locator("#archiveRefreshButton").isDisabled(), true);
+    assert.equal(await nativePage.locator("#logoutButton").isDisabled(), true);
     await nativePage.evaluate(() => window.__finishMockScan());
     await nativePage.locator("#collectorPanel").waitFor({ state: "hidden" });
+    assert.equal(await nativePage.locator("#scanNotice").isVisible(), true);
+    assert.match(await nativePage.locator("#scanNotice").innerText(), /2\/3 takip edilen/);
     await nativePage.locator('[data-category="notFollowingBack"]').first().click();
-    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-metadata-count")), null);
-    assert.match(await nativePage.locator("#peopleGrid").innerText(), /2 takipçi/);
+    assert.match(await nativePage.locator("#peopleGrid").innerText(), /Takipçi sayısı yükleniyor/);
     assert.doesNotMatch(await nativePage.locator("#peopleGrid").innerText(), /gönderi|Tek yönlü/);
     await nativePage.locator("#openFilterButton").click();
     assert.equal(await nativePage.locator("#relationshipFilter").isVisible(), false);
     assert.equal(await nativePage.locator("#detailsFilter").isVisible(), false);
     assert.equal(await nativePage.locator("#photoFilter").isVisible(), false);
-    await nativePage.locator("#minFollowersFilter").fill("3");
+    await nativePage.locator("#minFollowersFilter").fill("0");
+    await nativePage.locator("#maxFollowersFilter").fill("2");
     await nativePage.locator("#applyFiltersButton").click();
     assert.equal(await nativePage.locator("#peopleGrid .person-card").count(), 0);
+    assert.equal(await nativePage.locator("#pendingCounters").isVisible(), true);
+    assert.match(await nativePage.locator("#emptyTitle").innerText(), /henüz tamamlanmadı/);
+    await nativePage.waitForFunction(() => typeof window.__finishCounterBatch === "function");
+    await nativePage.evaluate(() => window.__finishCounterBatch());
+    await nativePage.waitForFunction(() => document.querySelector("#peopleGrid").textContent.includes("2 takipçi"));
+    assert.equal(await nativePage.locator("#pendingCounters").isVisible(), false);
+    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-follower-only")), "true");
+    await nativePage.waitForFunction(async () => {
+      const data = await window.TakipStorage.load();
+      return data.snapshots[0].following.find((record) => record.username === "carol")?.followerCount === 2;
+    });
+    await nativePage.locator("#openFilterButton").click();
+    await nativePage.locator("#minFollowersFilter").fill("3");
+    await nativePage.locator("#maxFollowersFilter").fill("");
+    await nativePage.locator("#applyFiltersButton").click();
+    assert.equal(await nativePage.locator("#peopleGrid .person-card").count(), 0);
+    assert.equal(await nativePage.locator("#pendingCounters").isVisible(), false);
     await nativePage.locator("#clearSearchButton").click();
     assert.equal(await nativePage.locator("#peopleGrid .person-card").count(), 1);
+    await nativePage.locator("#openFilterButton").click();
+    await nativePage.locator("#minFollowersFilter").fill("1.5");
+    await nativePage.locator("#applyFiltersButton").click();
+    assert.equal(await nativePage.locator("#filterDialog").isVisible(), true);
+    assert.equal(await nativePage.locator("#filterError").isVisible(), true);
+    await nativePage.locator("#minFollowersFilter").fill("7");
+    await nativePage.locator("#maxFollowersFilter").fill("1");
+    await nativePage.locator("#applyFiltersButton").click();
+    assert.equal(await nativePage.locator("#peopleGrid .person-card").count(), 1);
+    await nativePage.locator("#openFilterButton").click();
+    assert.equal(await nativePage.locator("#minFollowersFilter").inputValue(), "1");
+    assert.equal(await nativePage.locator("#maxFollowersFilter").inputValue(), "7");
+    await nativePage.locator("#resetFiltersButton").click();
     for (const width of [320, 390, 430]) {
       await nativePage.setViewportSize({ width, height: 844 });
       await nativePage.waitForFunction(() => document.querySelector("#sidebar").getBoundingClientRect().right <= 0);
@@ -248,12 +360,24 @@ async function main() {
       const toasts = await nativePage.locator("#toastRegion").boundingBox();
       const navigation = await nativePage.locator(".mobile-bottom-nav").boundingBox();
       assert.ok(toasts.y + toasts.height <= navigation.y, "Toasts must not cover mobile navigation");
+      assert.equal(await nativePage.locator("#logoutButton").isVisible(), true);
+      assert.equal(await nativePage.locator("#dashboardScanTempoPanel").getAttribute("open"), null);
       if (width === 390 && process.env.ATLAS_SMOKE_SCREENSHOT) { await settleLayout(nativePage); await nativePage.screenshot({ path: process.env.ATLAS_SMOKE_SCREENSHOT }); }
     }
     await nativePage.setViewportSize({ width: 1280, height: 720 });
     await nativePage.locator('[data-category="following"]').first().click();
-    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-metadata-count")), null);
+    await nativePage.locator("#openFilterButton").click();
+    await nativePage.locator("#minFollowersFilter").fill("0");
+    await nativePage.locator("#maxFollowersFilter").fill("0");
+    await nativePage.locator("#applyFiltersButton").click();
+    assert.equal(await nativePage.locator("#peopleGrid .person-card").count(), 1);
+    assert.match(await nativePage.locator("#peopleGrid").innerText(), /@bob/);
+    await nativePage.locator("#clearSearchButton").click();
+    await verifyLayouts(nativePage);
+    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-metadata-count")), "4");
+    assert.match(await nativePage.locator("#peopleGrid").innerText(), /0 takipçi/);
     await nativePage.locator(".favorite-button").first().click();
+    await nativePage.locator("#dashboardScanTempoPanel > summary").click();
     await nativePage.locator("#dashboardScanTempoSelect").selectOption("slow");
     await nativePage.locator("#changeProfileButton").click();
     await nativePage.locator("#keepDataButton").click();
@@ -270,13 +394,36 @@ async function main() {
     assert.equal(await nativePage.locator("#instagramConnectButton").isDisabled(), true);
     await nativePage.evaluate(() => { document.querySelector("#profileName").value = "test.owner"; document.querySelector("#setupForm").requestSubmit(); });
     assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-collect-count")), "2");
-    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-metadata-count")), null);
+    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-metadata-count")), "4");
+    const savedCount = await nativePage.evaluate(async () => (await window.TakipStorage.load()).snapshots.length);
+    await nativePage.evaluate(() => localStorage.setItem("mock-logout-fail", "1"));
+    await nativePage.locator("#logoutButton").click();
+    await nativePage.waitForFunction(() => localStorage.getItem("mock-session-clear-count") === "1" && !document.querySelector("#logoutButton").disabled);
+    assert.equal(await nativePage.locator("#dashboardView").isVisible(), true);
+    assert.equal(await nativePage.evaluate(async () => (await window.TakipStorage.load()).profile.username), "test.owner");
+    await nativePage.locator("#logoutButton").click();
+    await nativePage.locator("#onboardingView").waitFor({ state: "visible" });
+    assert.equal(await nativePage.evaluate(() => localStorage.getItem("mock-session-clear-count")), "2");
+    assert.deepEqual(await nativePage.evaluate(async () => {
+      const data = await window.TakipStorage.load();
+      return { profile: data.profile, count: data.snapshots.length };
+    }), { profile: null, count: savedCount });
+    await nativePage.reload();
+    await nativePage.locator("#onboardingView").waitFor({ state: "visible" });
+    assert.equal(await nativePage.locator("#dashboardView").isVisible(), false);
+    assert.equal(await nativePage.locator("#instagramConnectButton").isDisabled(), true);
+    await nativePage.locator("#profileName").fill("test.owner");
+    await nativePage.locator(".archive-options > summary").click();
+    const restoredChooser = nativePage.waitForEvent("filechooser");
+    await nativePage.locator("#archiveButton").click();
+    await (await restoredChooser).setFiles({ name: "instagram.zip", mimeType: "application/zip", buffer: Buffer.from(zip) });
+    await nativePage.locator("#dashboardView").waitFor({ state: "visible" });
     await nativePage.locator("#changeProfileButton").click();
     await nativePage.locator("#deleteDataButton").click();
     await nativePage.locator("#onboardingView").waitFor({ state: "visible" });
     assert.equal(await nativePage.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("takip-atlasi-favorites-v1:")).length), 0);
     assert.deepEqual(errors, []);
-    console.log("Simüle edilmiş Android: tek taramada sayaçlar, görünür ilerleme, 320/390/430px mobil arayüz, veri silme ve kalıcı 429 beklemesi başarılı.");
+    console.log("Simüle edilmiş Android: sade 320/390/430px arayüz, gerçek çıkış çağrısı, kayıtları koruma, yeniden açılış ve kalıcı 429 beklemesi başarılı.");
     await nativeContext.close();
     await verifyDesktopScan(browser);
   } finally {

@@ -69,7 +69,7 @@ test("PC yerel sunucusu arayüzü ve ZIP çözücüyü sunar", async () => {
     const base = `http://127.0.0.1:${server.address().port}`;
     const page = await fetch(base);
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /Instagram ZIP \/ JSON arşivini seç/);
+    assert.match(await page.text(), /id="archiveButton"/);
     const vendor = await fetch(`${base}/vendor/fflate.js`);
     assert.equal(vendor.status, 200);
     assert.match(await vendor.text(), /unzipSync/);

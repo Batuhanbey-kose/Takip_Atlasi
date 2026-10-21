@@ -14,23 +14,18 @@
   window.__TAKIP_ATLASI_NATIVE_CANCELLED__ = false;
 
   const APP_ID = "936619743392459";
-  const MAX_PAGES = 300;
+  const MAX_PAGES = 2600;
   const MAX_COUNT_DRIFT = 25;
   const scanTempos = {
-    slow: { minDelay: 2000, maxDelay: 3000, pageSize: 25 },
-    original: { minDelay: 1100, maxDelay: 2000, pageSize: 50 },
-    steady: { minDelay: 600, maxDelay: 1000, pageSize: 50 },
-    fast: { minDelay: 350, maxDelay: 600, pageSize: 100 },
+    slow: { minDelay: 2000, maxDelay: 3000 },
+    slower: { minDelay: 3000, maxDelay: 4000 },
   };
-  const tempoName = ["slow", "original", "steady", "fast"].includes(window.__TAKIP_ATLASI_SCAN_TEMPO__)
-    ? window.__TAKIP_ATLASI_SCAN_TEMPO__ : "steady";
+  const tempoName = window.__TAKIP_ATLASI_SCAN_TEMPO__ === "slower" ? "slower" : "slow";
   const scanTempo = scanTempos[tempoName];
-  const pageSize = [25, 50, 100].includes(window.__TAKIP_ATLASI_PAGE_SIZE__)
-    ? window.__TAKIP_ATLASI_PAGE_SIZE__ : scanTempo.pageSize;
+  const pageSize = 12;
   const people = new Map();
   const readyPeople = new Set();
-  const counterAttempts = new Set();
-  let counterQueriesAvailable = true;
+  const collection = {};
   let requestedOnce = false;
   const requestedUsername = normalizeUsername(
     window.__TAKIP_ATLASI_REQUESTED_USERNAME__,
@@ -184,7 +179,7 @@
     return error;
   }
 
-  async function instagramRequest(pathname, options = {}) {
+  async function instagramRequest(pathname) {
     ensureActive();
     if (requestedOnce) {
       await randomPause();
@@ -205,10 +200,6 @@
     if (csrfToken) {
       headers["X-CSRFToken"] = csrfToken;
     }
-    Object.entries(options.headers || {}).forEach(([name, value]) => {
-      const existing = Object.keys(headers).find((key) => key.toLowerCase() === name.toLowerCase());
-      headers[existing || name] = value;
-    });
     const controller = new AbortController();
     window.__TAKIP_ATLASI_SCAN_ABORT__ = controller;
     const timeout = window.setTimeout(() => controller.abort(), 45000);
@@ -216,8 +207,7 @@
       let response;
       try {
         response = await fetch(pathname, {
-          method: options.method || "GET",
-          body: options.body,
+          method: "GET",
           credentials: "include",
           redirect: "manual",
           headers,
@@ -476,38 +466,14 @@
     }
   }
 
-  async function collectPageCounters(relationship, users) {
-    const observer = window.__TAKIP_WEB_OBSERVER__;
-    for (const person of users) {
-      ensureActive();
-      if (normalizeCount(person.followerCount) !== null || counterAttempts.has(person.username) ||
-        !counterQueriesAvailable || typeof observer?.readProfile !== "function") continue;
-      counterAttempts.add(person.username);
-      try {
-        const details = await observer.readProfile(person, instagramRequest);
-        ensureActive();
-        if (details && normalizeUsername(details.username) === person.username &&
-          (!person.instagramUserId || normalizeUserId(details.instagramUserId) === person.instagramUserId)) {
-          publishPage(relationship, [rememberPerson({ ...person, ...details })]);
-        }
-      } catch (error) {
-        if (["RATE_LIMITED", "SESSION_REQUIRED", "REQUEST_DENIED", "VERIFICATION_REQUIRED", "API_REDIRECT",
-          "UNSUPPORTED_CLIENT", "TIMEOUT", "NETWORK_ERROR", "CANCELLED"].includes(error.code)) throw error;
-        // An unavailable individual profile is not an incomplete relationship list.
-        // A rejected query template is not retried for every remaining account.
-        if (error.httpStatus !== 404) counterQueriesAvailable = false;
-      }
-      const counters = counterStatus();
-      update({ ...counters, message: `${latestStatus.followersCount} takipçi · ${latestStatus.followingCount} takip edilen · ${counters.profilesReady}/${counters.profilesTotal} profil sayacı hazır` });
-    }
-  }
-
   async function collectRelationship(account, relationship, followerTotal, expectedTotal) {
     const isFollowers = relationship === "followers";
     const label = isFollowers ? "takipçi" : "takip edilen";
     const usernames = new Set();
     const seenPages = new Set();
     let pageId = "";
+    let recoveryStarted = false;
+    let restricted = false;
 
     for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber += 1) {
       ensureActive();
@@ -523,13 +489,14 @@
         `/api/v1/friendships/${encodeURIComponent(account.userId)}/${relationship}/?${query.toString()}`,
       );
       const page = pageUsers(payload);
+      restricted ||= payload.should_limit_list_of_followings === true || payload.should_limit_list_of_followers === true;
       const users = page.records.map(rememberPerson);
       users.forEach((user) => usernames.add(user.username));
       publishPage(relationship, users);
 
       const progress = Math.min(
         isFollowers ? 54 : 94,
-        (isFollowers ? 22 : 58) + pageNumber * 3,
+        (isFollowers ? 22 : 58) + 32 * Math.min(1, usernames.size / Math.max(1, expectedTotal)),
       );
       update({
         phase: relationship,
@@ -546,17 +513,26 @@
           throw new Error("Instagram liste sayfalarını tamamlamadı; eksik veri kaydedilmedi.");
         }
         const missingCount = Math.max(0, expectedTotal - usernames.size);
-        if (missingCount > allowedCountDrift(expectedTotal)) {
+        if (missingCount > allowedCountDrift(expectedTotal) && !recoveryStarted && !restricted) {
+          recoveryStarted = true;
+          seenPages.clear();
+          pageId = "";
+          update({ message: `${usernames.size}/${expectedTotal} ${label} okundu. Eksik hesaplar için liste bir kez daha temkinli kontrol ediliyor...` });
+          continue;
+        }
+        const limitedGap = Math.min(MAX_COUNT_DRIFT, Math.max(3, Math.ceil(expectedTotal * 0.2)));
+        if (missingCount > limitedGap || expectedTotal > 0 && usernames.size === 0) {
           throw new Error(
             `Instagram ${label} listesini eksik döndürdü (${usernames.size}/${expectedTotal}); veri kaydedilmedi.`,
           );
         }
+        collection[relationship] = { expected: expectedTotal, observed: usernames.size,
+          complete: missingCount === 0 && !restricted, restricted, rechecked: recoveryStarted };
         if (missingCount > 0) {
           update({
-            message: `Instagram ${missingCount} erişilemeyen ${label} hesabını listede göstermedi; ${usernames.size} hesapla devam ediliyor.`,
+            message: `${usernames.size}/${expectedTotal} ${label} erişilebilir. Sonuç sınırlı kayıt olarak hazırlanıyor; eksik hesaplar için kesin ilişki sonucu üretilmez.`,
           });
         }
-        await collectPageCounters(relationship, users);
         return usernames.size;
       }
       if (!page.rawCount || !users.length) {
@@ -565,7 +541,6 @@
       if (seenPages.has(nextId)) {
         throw new Error("Instagram aynı liste sayfasını tekrarladı; eksik veri kaydedilmedi.");
       }
-      await collectPageCounters(relationship, users);
       seenPages.add(nextId);
       pageId = nextId;
     }
@@ -616,6 +591,7 @@
         progress: 97,
         followersCount,
         followingCount,
+        collection,
         ...counterStatus(),
       });
       send("complete", {
@@ -624,6 +600,7 @@
         profilePicUrl: account.profilePicUrl,
         followersCount,
         followingCount,
+        collection,
         ...counterStatus(),
       });
     } catch (error) {

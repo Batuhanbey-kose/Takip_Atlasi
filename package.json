@@ -6,9 +6,9 @@
   "scripts": {
     "web:deps": "node scripts/sync-web-deps.js",
     "pretest": "npm run web:deps",
-    "test": "node --test tests/logic.test.js tests/archive.test.js tests/desktop.test.js tests/web-observer.test.js",
+    "test": "node --test tests/logic.test.js tests/archive.test.js tests/desktop.test.js tests/web-observer.test.js tests/counters.test.js",
     "precheck": "npm run web:deps",
-    "check": "node --check www/logic.js && node --check www/archive.js && node --check www/storage.js && node --check www/desktop.js && node --check www/app.js && node --check www/sw.js && node --check scripts/serve.js && node --check scripts/instagram-desktop.js && node --check scripts/desktop-enrichment.js && node --check scripts/package-pc.js && node --check scripts/smoke-desktop.js && node --check android/app/src/main/assets/instagram-collector.js && node --check android/app/src/main/assets/instagram-web-observer.js",
+    "check": "node --check www/logic.js && node --check www/counters.js && node --check www/appearance.js && node --check www/archive.js && node --check www/storage.js && node --check www/desktop.js && node --check www/app.js && node --check www/sw.js && node --check scripts/serve.js && node --check scripts/instagram-desktop.js && node --check scripts/desktop-enrichment.js && node --check scripts/package-pc.js && node --check scripts/smoke-desktop.js && node --check android/app/src/main/assets/instagram-collector.js && node --check android/app/src/main/assets/instagram-web-observer.js",
     "prestart": "npm run web:deps",
     "start": "node scripts/serve.js",
     "prepackage:pc": "npm run web:deps",

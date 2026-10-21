@@ -13,7 +13,7 @@ android {
         applicationId "com.takipatlasi.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 13
+        versionCode 16
         versionName "1.5.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -33,6 +33,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            applicationIdSuffix ".local"
+            versionNameSuffix "-yerel"
+        }
         release {
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release

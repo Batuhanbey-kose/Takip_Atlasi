@@ -23,6 +23,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
+import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
@@ -94,7 +95,7 @@ public class InstagramCollectorPlugin extends Plugin {
     private long pageFinishedAt;
     private boolean cancelled;
     private String requestedUsername = "";
-    private String scanTempo = "steady";
+    private String scanTempo = "slow";
     private String accountUsername = "";
     private String accountUserId = "";
     private String accountProfilePicUrl = "";
@@ -110,8 +111,8 @@ public class InstagramCollectorPlugin extends Plugin {
     @PluginMethod
     public void collect(PluginCall call) {
         String username = normalizeUsername(call.getString("username", ""));
-        String requestedTempo = call.getString("tempo", "steady");
-        String tempo = "original".equals(requestedTempo) || "slow".equals(requestedTempo) || "fast".equals(requestedTempo) ? requestedTempo : "steady";
+        String requestedTempo = call.getString("tempo", "slow");
+        String tempo = "slower".equals(requestedTempo) ? "slower" : "slow";
         mainHandler.post(() -> startCollection(call, username, tempo));
     }
 
@@ -208,7 +209,7 @@ public class InstagramCollectorPlugin extends Plugin {
             }
             JSArray source = call.getArray("records", new JSArray());
             JSArray records = new JSArray();
-            for (int index = 0; index < Math.min(4, source.length()); index += 1) {
+            for (int index = 0; index < Math.min(1, source.length()); index += 1) {
                 JSObject record = sanitizeRecord(source.optJSONObject(index));
                 if (record != null) records.put(record);
             }
@@ -252,27 +253,34 @@ public class InstagramCollectorPlugin extends Plugin {
 
     @PluginMethod
     public void clearSession(PluginCall call) {
-        mainHandler.post(this::destroySessionWebView);
-        InstagramAccountRepository repository = accountRepository;
-        ExecutorService executor = accountExecutor;
-        if (repository != null) {
-            repository.cancelRequests();
-        }
-        Runnable clearCookies = () -> mainHandler.post(() -> {
-            CookieManager cookieManager = CookieManager.getInstance();
-            cookieManager.removeAllCookies((removed) -> {
-                cookieManager.flush();
-                call.resolve();
+        mainHandler.post(() -> {
+            if (activeCall != null) {
+                call.reject("Önce devam eden taramayı durdur.");
+                return;
+            }
+            destroySessionWebView();
+            InstagramAccountRepository repository = accountRepository;
+            ExecutorService executor = accountExecutor;
+            if (repository != null) repository.cancelRequests();
+            Runnable clearCookies = () -> mainHandler.post(() -> {
+                // Remove Instagram storage only; analysis belongs to the app origin.
+                WebStorage.getInstance().deleteOrigin("https://www.instagram.com");
+                WebStorage.getInstance().deleteOrigin("https://instagram.com");
+                CookieManager cookieManager = CookieManager.getInstance();
+                cookieManager.removeAllCookies((removed) -> {
+                    cookieManager.flush();
+                    call.resolve();
+                });
             });
-        });
-        if (repository != null && executor != null && !executor.isShutdown()) {
-            executor.execute(() -> {
-                repository.clearCaches();
+            if (repository != null && executor != null && !executor.isShutdown()) {
+                executor.execute(() -> {
+                    try { repository.clearCaches(); }
+                    finally { clearCookies.run(); }
+                });
+            } else {
                 clearCookies.run();
-            });
-        } else {
-            clearCookies.run();
-        }
+            }
+        });
     }
 
     @Override
@@ -785,6 +793,8 @@ public class InstagramCollectorPlugin extends Plugin {
         summary.put("profilePicUrl", accountProfilePicUrl);
         summary.put("followersCount", followersCount);
         summary.put("followingCount", followingCount);
+        JSONObject quality = message.optJSONObject("collection");
+        if (quality != null) summary.put("collection", quality);
         summary.put("profilesReady", Math.max(0, message.optInt("profilesReady", 0)));
         summary.put("profilesTotal", Math.max(0, message.optInt("profilesTotal", 0)));
         CookieManager.getInstance().flush();
@@ -816,7 +826,7 @@ public class InstagramCollectorPlugin extends Plugin {
         status.put("followingCount", Math.max(0, followingCount));
         status.put("profilesReady", profileCountersReady);
         status.put("profilesTotal", profileCountersTotal);
-        status.put("pageSize", "fast".equals(scanTempo) ? 100 : "slow".equals(scanTempo) ? 25 : 50);
+        status.put("pageSize", 12);
         notifyListeners("progress", status);
     }
 

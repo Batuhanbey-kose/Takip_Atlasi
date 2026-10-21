@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Restore conservative 12-account relationship pages with 2–3 second spacing and an optional 3–4 second mode; collect profile counters strictly one account at a time.
+- Recheck an unexpectedly short list once. Preserve bounded small gaps as explicitly limited analyses without inferring missing relationships or false follower changes.
+- Complete missing follower counts after list collection, prioritize the active view, persist timestamped counters and respect cancellation/session/rate-limit states.
+- Keep pending numeric-filter candidates separate from confirmed matches, validate ranges and refresh matches as counters arrive.
+- Add ten genuinely different rendered layouts and ten independent color themes with previews and persistent selection.
+- Keep list pagination and single-account profile counters on separate, sequential flows.
+- Retain counters supplied by list responses and show unavailable values honestly.
+- Preserve collapsible scan settings and an explicit Instagram logout action that keeps analysis history.
+- Build a side-by-side, locally signed Android test APK without creating a GitHub release.
+
 ## 1.5.0 - 2026-10-16
 
 - Replace fixed 12-account pages with balanced 50-account and fast 100-account requests; use one paced request queue for lists and profile counters.
